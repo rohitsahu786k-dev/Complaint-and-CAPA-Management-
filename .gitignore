@@ -1,0 +1,10 @@
+.env
+.env.local
+.env.production
+*.local
+node_modules
+dist
+.vercel
+coverage
+*.log
+*.tsbuildinfo
