@@ -14,7 +14,7 @@ import {
   signSession,
   verifyPassword
 } from "../services/auth.service";
-import { sendMail } from "../services/email.service";
+import { sendTemplatedEmail } from "../services/email.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
@@ -65,12 +65,18 @@ authRouter.post(
     if (result?.user.email) {
       const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
       const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
-      await sendMail({
-        to: [result.user.email],
-        subject: "Reset your ONEPWS Complaint & CAPA Portal password",
-        html: `<p>Hello ${result.user.name},</p><p>Use the secure link below to reset your password. It expires in 1 hour.</p><p><a href="${resetUrl}">Reset Password</a></p>`,
-        text: `Hello ${result.user.name},\n\nReset your password: ${resetUrl}\n\nThis link expires in 1 hour.`
+
+      await sendTemplatedEmail({
+        triggerEvent: "PASSWORD_RESET_REQUESTED",
+        recipients: [result.user.email],
+        data: {
+          recipientName: result.user.name,
+          resetUrl,
+          expiresInHours: "1"
+        },
+        sentBySystem: true
       });
+
       await writeAudit({ action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: String(result.user._id) });
     }
     return ok(res, { requested: true });
@@ -84,6 +90,19 @@ authRouter.post(
     await connectDB();
     const user = await resetPasswordWithToken(input.token, input.newPassword);
     await writeAudit({ action: "PASSWORD_RESET_COMPLETED", entity: "User", entityId: String(user._id) });
+
+    if (user.email) {
+      await sendTemplatedEmail({
+        triggerEvent: "PASSWORD_CHANGED",
+        recipients: [user.email],
+        data: {
+          recipientName: user.name,
+          username: user.username
+        },
+        sentBySystem: true
+      });
+    }
+
     return ok(res, { reset: true });
   })
 );
@@ -102,6 +121,20 @@ authRouter.post(
     user.forcePasswordChange = false;
     await user.save();
     await writeAudit({ actor: req.user, action: "PASSWORD_CHANGED", entity: "User", entityId: String(user._id) });
+
+    if (user.email) {
+      await sendTemplatedEmail({
+        triggerEvent: "PASSWORD_CHANGED",
+        recipients: [user.email],
+        data: {
+          recipientName: user.name,
+          username: user.username
+        },
+        sentBySystem: true
+      });
+    }
+
     return ok(res, { changed: true });
   })
 );
+

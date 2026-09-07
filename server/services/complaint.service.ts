@@ -16,6 +16,8 @@ import { Priority } from "../models/masters";
 import { activeDelayReasons, resolveTatConfig } from "./config.service";
 import { toDomainActor, toDomainCapa, toDomainComplaint } from "./mappers";
 import { notify, usersWithRole } from "./notification.service";
+import { sendTemplatedEmail } from "./email.service";
+import { resolveRecipients } from "./email-recipient.service";
 import { nextComplaintNumber } from "./numbering.service";
 import { writeAudit } from "./audit.service";
 import { businessRuleError, httpError, type FieldIssue } from "../utils/http";
@@ -173,8 +175,33 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
     link: `/complaints/${doc._id}`
   });
 
+  const emailRecipients = await resolveRecipients({
+    complaintId: doc._id,
+    targetRoles: ["Complaint Owner", "Coordinator", "Department Head", "Quality Head"]
+  });
+  if (emailRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: "COMPLAINT_CREATED",
+      recipients: emailRecipients,
+      relatedComplaintId: doc._id,
+      data: {
+        complaintNumber: doc.number,
+        complaintTitle: doc.description || doc.number,
+        complaintType: doc.type,
+        customerName: doc.customer || "Internal Issue",
+        partName: doc.product || "Component",
+        partNumber: "N/A",
+        priority: String(doc.priority || "Standard"),
+        ackDueDate: "Within 24h",
+        actionUrl: `/complaints/${doc._id}`
+      }
+    });
+  }
+
   return doc;
 }
+
+
 
 /* ------------------------------------------------------------------ querying */
 
@@ -319,8 +346,46 @@ export async function completeStage(complaintId: string, input: StageCompleteInp
     });
   }
 
+  const stageTriggerMap: Record<string, string> = {
+    ack: "COMPLAINT_ACKNOWLEDGED",
+    cont: "COMPLAINT_CONTAINMENT_COMPLETED",
+    rca: "COMPLAINT_RCA_COMPLETED",
+    capa: "COMPLAINT_CAPA_ASSIGNED"
+  };
+
+  const trigger = stageTriggerMap[stage];
+  if (trigger) {
+    const stageRecipients = await resolveRecipients({
+      complaintId: context.doc._id,
+      targetRoles: ["Complaint Owner", "Coordinator", "Department Head"]
+    });
+    if (stageRecipients.length > 0) {
+      await sendTemplatedEmail({
+        triggerEvent: trigger,
+        recipients: stageRecipients,
+        relatedComplaintId: context.doc._id,
+        data: {
+          complaintNumber: context.doc.number,
+          acknowledgedBy: context.actor.name,
+          ownerName: context.actor.name,
+          stage: WORKFLOW_STAGE_STATUS[stage],
+          containmentDueDate: "Scheduled",
+          rcaDueDate: "Scheduled",
+          capaDueDate: "Scheduled",
+          rootCauseCategory: context.doc.rootCauseCategory || "Investigated",
+          rootCauseSummary: context.doc.d4Occurrence || "Root cause identified.",
+          capaCount: "1",
+          assignedTo: context.actor.name,
+          actionUrl: `/complaints/${complaintId}`
+        }
+      });
+    }
+  }
+
   return context.doc;
 }
+
+
 
 /* ------------------------------------------------------------------ 8D and internal investigation */
 
@@ -376,6 +441,32 @@ export async function signComplaint(complaintId: string, role: SignatureRole, no
   await context.doc.save();
 
   await writeAudit({ actor: user, action: "SIGN", entity: "Complaint", entityId: complaintId, after: { role, by: context.actor.name } });
+
+  const signatureTriggerMap: Record<SignatureRole, string> = {
+    prepared: "COMPLAINT_PREPARED",
+    reviewed: "COMPLAINT_REVIEWED",
+    approved: "COMPLAINT_APPROVED"
+  };
+  const sigTrigger = signatureTriggerMap[role];
+  if (sigTrigger) {
+    const sigRecipients = await resolveRecipients({
+      complaintId: context.doc._id,
+      targetRoles: ["Complaint Owner", "Coordinator", "Quality Head", "Department Head"]
+    });
+    if (sigRecipients.length > 0) {
+      await sendTemplatedEmail({
+        triggerEvent: sigTrigger,
+        recipients: sigRecipients,
+        relatedComplaintId: context.doc._id,
+        data: {
+          complaintNumber: context.doc.number,
+          signerName: context.actor.name,
+          actionUrl: `/complaints/${complaintId}`
+        }
+      });
+    }
+  }
+
   return context.doc;
 }
 
@@ -396,8 +487,29 @@ export async function revokeSignature(complaintId: string, role: SignatureRole, 
     entityId: complaintId,
     after: { role, reason, invalidated: rolesInvalidatedBy(role) }
   });
+
+  const revokeRecipients = await resolveRecipients({
+    complaintId: context.doc._id,
+    targetRoles: ["Complaint Owner", "Coordinator", "Quality Head"]
+  });
+  if (revokeRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: "SIGNATURE_REVOKED",
+      recipients: revokeRecipients,
+      relatedComplaintId: context.doc._id,
+      data: {
+        complaintNumber: context.doc.number,
+        revokedBy: context.actor.name,
+        signatureRole: role.toUpperCase(),
+        revocationReason: reason,
+        actionUrl: `/complaints/${complaintId}`
+      }
+    });
+  }
+
   return context.doc;
 }
+
 
 /* ------------------------------------------------------------------ closure */
 
@@ -449,8 +561,28 @@ export async function closeComplaint(
     link: `/complaints/${complaintId}`
   });
 
+  const closeRecipients = await resolveRecipients({
+    complaintId: context.doc._id,
+    targetRoles: ["Complaint Owner", "Coordinator", "Quality Head", "Department Head"]
+  });
+  if (closeRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: "COMPLAINT_CLOSED",
+      recipients: closeRecipients,
+      relatedComplaintId: context.doc._id,
+      data: {
+        complaintNumber: context.doc.number,
+        customerName: context.doc.customer || "Internal",
+        partName: context.doc.product || "Component",
+        closedBy: context.actor.name,
+        actionUrl: `/complaints/${complaintId}`
+      }
+    });
+  }
+
   return context.doc;
 }
+
 
 export async function reopenComplaint(complaintId: string, reason: string, user: ApiUser | undefined, options: { system?: boolean } = {}) {
   const context = await loadComplaintContext(complaintId, user);
@@ -476,8 +608,28 @@ export async function reopenComplaint(complaintId: string, reason: string, user:
     link: `/complaints/${complaintId}`
   });
 
+  const reopenRecipients = await resolveRecipients({
+    complaintId: context.doc._id,
+    targetRoles: ["Complaint Owner", "Coordinator", "Quality Head", "Department Head"]
+  });
+  if (reopenRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: "COMPLAINT_REOPENED",
+      recipients: reopenRecipients,
+      relatedComplaintId: context.doc._id,
+      data: {
+        complaintNumber: context.doc.number,
+        reopenedBy: context.actor.name,
+        departmentName: "Quality & Operations",
+        reopenReason: reason,
+        actionUrl: `/complaints/${complaintId}`
+      }
+    });
+  }
+
   return context.doc;
 }
+
 
 /* ------------------------------------------------------------------ repeat review */
 

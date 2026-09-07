@@ -15,6 +15,8 @@ import { Complaint } from "../models/Complaint";
 import { loadComplaintContext, reopenComplaint, requireActor } from "./complaint.service";
 import { toDomainCapa } from "./mappers";
 import { notify } from "./notification.service";
+import { sendTemplatedEmail } from "./email.service";
+import { resolveRecipients } from "./email-recipient.service";
 import { nextCapaNumber } from "./numbering.service";
 import { writeAudit } from "./audit.service";
 import { businessRuleError, httpError } from "../utils/http";
@@ -130,8 +132,32 @@ export async function createCapa(complaintId: string, input: CapaCreateInput, us
     link: `/complaints/${complaintId}`
   });
 
+  const capaRecipients = await resolveRecipients({
+    capaId: capa._id,
+    targetRoles: ["CAPA Owner", "Department Head"]
+  });
+  if (capaRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: "CAPA_ASSIGNED",
+      recipients: capaRecipients,
+      relatedCapaId: capa._id,
+      relatedComplaintId: complaintId,
+      data: {
+        capaNumber: capa.number,
+        capaType: capa.type,
+        targetDate: new Date(capa.dueDate).toLocaleDateString("en-IN"),
+        complaintNumber: context.doc.number,
+        departmentName: context.doc.responsibleDept ? String(context.doc.responsibleDept) : "Production",
+        capaTitle: capa.action,
+        actionUrl: `/complaints/${complaintId}`
+      }
+
+    });
+  }
+
   return capa;
 }
+
 
 export async function updateCapa(
   capaId: string,
@@ -207,6 +233,25 @@ export async function attachEvidence(capaId: string, attachmentId: Types.ObjectI
   await capa.save();
 
   await writeAudit({ actor: user, action: "UPLOAD", entity: "Capa", entityId: capaId, after: { attachment: String(attachmentId) } });
+
+  const qualityRecipients = await resolveRecipients({
+    capaId: capa._id,
+    targetRoles: ["Quality Head", "Master Admin"]
+  });
+  if (qualityRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: "CAPA_EVIDENCE_UPLOADED",
+      recipients: qualityRecipients,
+      relatedCapaId: capa._id,
+      data: {
+        capaNumber: capa.number,
+        assignedTo: context.actor.name,
+        evidenceFileName: description || "Evidence document attached",
+        actionUrl: `/complaints/${String(capa.complaint)}`
+      }
+    });
+  }
+
   return capa;
 }
 
@@ -242,6 +287,24 @@ export async function reviewEvidence(capaId: string, decision: "Accepted" | "Rej
     entityId: capa._id,
     link: `/complaints/${String(capa.complaint)}`
   });
+
+  const ownerRecipients = await resolveRecipients({
+    capaId: capa._id,
+    targetRoles: ["CAPA Owner"]
+  });
+  if (ownerRecipients.length > 0) {
+    await sendTemplatedEmail({
+      triggerEvent: decision === "Accepted" ? "CAPA_EVIDENCE_ACCEPTED" : "CAPA_EVIDENCE_REJECTED",
+      recipients: ownerRecipients,
+      relatedCapaId: capa._id,
+      data: {
+        capaNumber: capa.number,
+        reviewedBy: context.actor.name,
+        rejectionRemarks: remarks || "Evidence does not satisfy acceptance criteria.",
+        actionUrl: `/complaints/${String(capa.complaint)}`
+      }
+    });
+  }
 
   return capa;
 }
@@ -290,10 +353,57 @@ export async function verifyEffectiveness(capaId: string, input: EffectivenessIn
       entityId: capa._id,
       link: `/complaints/${String(capa.complaint)}`
     });
+
+    const notEffectiveRecipients = await resolveRecipients({
+      capaId: capa._id,
+      complaintId: capa.complaint,
+      targetRoles: ["Complaint Owner", "CAPA Owner", "Quality Head"]
+    });
+    const mgmtCc = await resolveRecipients({
+      capaId: capa._id,
+      targetRoles: ["Department Head", "Management"]
+    });
+
+    if (notEffectiveRecipients.length > 0) {
+      await sendTemplatedEmail({
+        triggerEvent: "CAPA_NOT_EFFECTIVE",
+        recipients: notEffectiveRecipients,
+        cc: mgmtCc,
+        relatedCapaId: capa._id,
+        relatedComplaintId: capa.complaint,
+        data: {
+          capaNumber: capa.number,
+          complaintNumber: context.doc.number,
+          verifiedBy: context.actor.name,
+          verificationRemarks: input.remarks || "Action did not prevent defect recurrence.",
+          actionUrl: `/complaints/${String(capa.complaint)}`
+        }
+      });
+    }
+  } else {
+    const effectiveRecipients = await resolveRecipients({
+      capaId: capa._id,
+      complaintId: capa.complaint,
+      targetRoles: ["Complaint Owner", "CAPA Owner", "Quality Head"]
+    });
+    if (effectiveRecipients.length > 0) {
+      await sendTemplatedEmail({
+        triggerEvent: "CAPA_EFFECTIVENESS_VERIFIED",
+        recipients: effectiveRecipients,
+        relatedCapaId: capa._id,
+        relatedComplaintId: capa.complaint,
+        data: {
+          capaNumber: capa.number,
+          verifiedBy: context.actor.name,
+          actionUrl: `/complaints/${String(capa.complaint)}`
+        }
+      });
+    }
   }
 
   return capa;
 }
+
 
 export async function capaSummaryForComplaint(complaintId: string) {
   const complaint = await Complaint.findById(complaintId).select("_id").lean();

@@ -249,3 +249,86 @@ export const ALLOWED_UPLOAD_MIME_TYPES = [
 ] as const;
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+export const EMAIL_TRIGGER_EVENTS = [
+  // Auth
+  "USER_CREATED",
+  "PASSWORD_RESET_REQUESTED",
+  "PASSWORD_CHANGED",
+  // Complaint
+  "COMPLAINT_CREATED",
+  "COMPLAINT_ASSIGNED",
+  "COMPLAINT_REASSIGNED",
+  "COMPLAINT_ACKNOWLEDGED",
+  "COMPLAINT_CONTAINMENT_COMPLETED",
+  "COMPLAINT_RCA_COMPLETED",
+  "COMPLAINT_CAPA_ASSIGNED",
+  "COMPLAINT_STATUS_CHANGED",
+  "COMPLAINT_CLOSED",
+  "COMPLAINT_REOPENED",
+  "COMPLAINT_REPORT_SHARED",
+  // TAT
+  "TAT_REMINDER",
+  "TAT_DUE_SOON",
+  "TAT_OVERDUE",
+  "TAT_ESCALATION",
+  // CAPA
+  "CAPA_ASSIGNED",
+  "CAPA_REASSIGNED",
+  "CAPA_DUE_REMINDER",
+  "CAPA_OVERDUE",
+  "CAPA_COMPLETED",
+  "CAPA_EVIDENCE_UPLOADED",
+  "CAPA_EVIDENCE_ACCEPTED",
+  "CAPA_EVIDENCE_REJECTED",
+  "CAPA_EFFECTIVENESS_VERIFIED",
+  "CAPA_NOT_EFFECTIVE",
+  // Signature
+  "COMPLAINT_PREPARED",
+  "COMPLAINT_REVIEWED",
+  "COMPLAINT_APPROVED",
+  "SIGNATURE_REVOKED",
+  // Summary
+  "DAILY_SUMMARY",
+  "WEEKLY_SUMMARY"
+] as const;
+
+export type EmailTriggerEvent = (typeof EMAIL_TRIGGER_EVENTS)[number];
+
+export const EMAIL_TRIGGER_LABELS: Record<EmailTriggerEvent, string> = {
+  USER_CREATED: "User Created",
+  PASSWORD_RESET_REQUESTED: "Password Reset Requested",
+  PASSWORD_CHANGED: "Password Changed",
+  COMPLAINT_CREATED: "Complaint Created",
+  COMPLAINT_ASSIGNED: "Complaint Assigned",
+  COMPLAINT_REASSIGNED: "Complaint Reassigned",
+  COMPLAINT_ACKNOWLEDGED: "Complaint Acknowledged",
+  COMPLAINT_CONTAINMENT_COMPLETED: "Containment Completed",
+  COMPLAINT_RCA_COMPLETED: "RCA Completed",
+  COMPLAINT_CAPA_ASSIGNED: "CAPA Assigned from Complaint",
+  COMPLAINT_STATUS_CHANGED: "Complaint Status Changed",
+  COMPLAINT_CLOSED: "Complaint Closed",
+  COMPLAINT_REOPENED: "Complaint Reopened",
+  COMPLAINT_REPORT_SHARED: "Complaint 8D Report Shared",
+  TAT_REMINDER: "TAT SLA Reminder",
+  TAT_DUE_SOON: "TAT Stage Due Soon",
+  TAT_OVERDUE: "TAT Stage Overdue",
+  TAT_ESCALATION: "TAT Overdue Escalation",
+  CAPA_ASSIGNED: "CAPA Assigned",
+  CAPA_REASSIGNED: "CAPA Reassigned",
+  CAPA_DUE_REMINDER: "CAPA Due Reminder",
+  CAPA_OVERDUE: "CAPA Overdue",
+  CAPA_COMPLETED: "CAPA Action Completed",
+  CAPA_EVIDENCE_UPLOADED: "CAPA Evidence Uploaded",
+  CAPA_EVIDENCE_ACCEPTED: "CAPA Evidence Accepted",
+  CAPA_EVIDENCE_REJECTED: "CAPA Evidence Rejected",
+  CAPA_EFFECTIVENESS_VERIFIED: "CAPA Effectiveness Verified",
+  CAPA_NOT_EFFECTIVE: "CAPA Not Effective / Reopened",
+  COMPLAINT_PREPARED: "8D Report Prepared",
+  COMPLAINT_REVIEWED: "8D Report Reviewed",
+  COMPLAINT_APPROVED: "8D Report Approved",
+  SIGNATURE_REVOKED: "8D Signature Revoked",
+  DAILY_SUMMARY: "Daily Management Digest",
+  WEEKLY_SUMMARY: "Weekly Quality Digest"
+};
+
