@@ -24,9 +24,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     }
   });
 
-  const payload = (await response.json().catch(() => ({}))) as Partial<ApiEnvelope<T>> & { message?: string; issues?: ApiIssue[] };
+  const isJson = response.headers.get("content-type")?.includes("application/json");
+  const payload = (isJson ? await response.json().catch(() => ({})) : {}) as Partial<ApiEnvelope<T>> & {
+    message?: string;
+    issues?: ApiIssue[];
+  };
   if (!response.ok) {
-    throw new ApiError(payload.message || "Request failed", response.status, Array.isArray(payload.issues) ? payload.issues : []);
+    const message = payload.message || `Request failed (${response.status})`;
+    throw new ApiError(message, response.status, Array.isArray(payload.issues) ? payload.issues : []);
   }
   return payload.data as T;
 }
