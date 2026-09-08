@@ -15,7 +15,6 @@ const scopeQuery = z.object({ company: objectIdSchema.optional() });
 const reportQuery = scopeQuery.extend({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
 
 export const analyticsRouter = Router();
-
 analyticsRouter.use(requireUser);
 
 analyticsRouter.get(
@@ -64,14 +63,13 @@ analyticsRouter.get(
 );
 
 export const reportRouter = Router();
-
 reportRouter.use(requireUser);
 
 reportRouter.get(
   "/",
   asyncHandler(async (req, res) => {
     const actor = await requireActor(req.user);
-    const catalog = reportCatalog().filter((entry) => hasPermission(actor, entry.permission) || hasPermission(actor, "view.company"));
+    const catalog = reportCatalog().filter((entry) => hasPermission(actor, entry.permission));
     return ok(res, { reports: catalog });
   })
 );
@@ -82,15 +80,12 @@ reportRouter.get(
     const query = reportQuery.parse(req.query);
     await connectDB();
     const actor = await requireActor(req.user);
-    if (!hasPermission(actor, "report.all") && !hasPermission(actor, "view.company")) {
-      throw httpError(403, "You do not have permission to run reports");
-    }
+    if (!hasPermission(actor, "report.all")) throw httpError(403, "You do not have permission to run reports");
     const rows = await buildReport(req.params.id, { user: req.user, companyId: query.company, from: query.from, to: query.to });
     return ok(res, { id: req.params.id, rows, generatedAt: new Date().toISOString() });
   })
 );
 
-/** Exports are authorized and audited; the rows themselves are rendered client side. */
 reportRouter.post(
   "/:id/export",
   asyncHandler(async (req, res) => {
