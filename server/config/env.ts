@@ -35,6 +35,14 @@ export function getEnv() {
     const keys = parsed.error.issues.map((issue) => issue.path.join(".")).join(", ");
     throw new Error(`Server environment is not configured correctly: ${keys}`);
   }
+
+  if (parsed.data.NODE_ENV === "production") {
+    const missing: string[] = [];
+    if (!parsed.data.APP_BASE_URL) missing.push("APP_BASE_URL");
+    if (!parsed.data.CRON_SECRET || parsed.data.CRON_SECRET.length < 24) missing.push("CRON_SECRET");
+    if (missing.length) throw new Error(`Production environment is missing required configuration: ${missing.join(", ")}`);
+  }
+
   cachedEnv = parsed.data;
   return cachedEnv;
 }
