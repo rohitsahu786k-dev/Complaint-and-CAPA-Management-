@@ -3,7 +3,7 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
-import { getEnv } from "./config/env";
+import { getEnv, isProduction } from "./config/env";
 import { optionalUser } from "./middleware/auth";
 import { errorHandler } from "./middleware/error";
 import { analyticsRouter, reportRouter } from "./routes/analytics.routes";
@@ -24,13 +24,22 @@ import { cronRouter } from "./routes/cron.routes";
 export function createApp() {
   const app = express();
   const env = getEnv();
+  const production = isProduction();
 
+  app.disable("x-powered-by");
   app.set("trust proxy", 1);
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(
+    helmet({
+      contentSecurityPolicy: production ? undefined : false,
+      crossOriginResourcePolicy: { policy: "same-site" }
+    })
+  );
   app.use(
     cors({
-      origin: env.APP_BASE_URL || true,
-      credentials: true
+      origin: production ? env.APP_BASE_URL || false : env.APP_BASE_URL || true,
+      credentials: true,
+      methods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
     })
   );
   // Imports and legacy migrations carry large JSON payloads; every other route stays small.
@@ -39,8 +48,9 @@ export function createApp() {
   app.use(cookieParser(env.COOKIE_SECRET));
 
   // Correlation id, so an audit entry can be tied back to a single request.
-  app.use((req, _res, next) => {
+  app.use((req, res, next) => {
     req.requestId = randomUUID();
+    res.setHeader("X-Request-Id", req.requestId);
     next();
   });
 
