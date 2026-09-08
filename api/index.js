@@ -243,11 +243,42 @@ async function resetPasswordWithToken(token, newPassword) {
   return user;
 }
 
+// server/utils/signed-cookie.ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+function signature(value, secret) {
+  return createHmac("sha256", secret).update(value).digest("base64").replace(/=+$/, "");
+}
+function signCookieValue(value, secret) {
+  return `s:${value}.${signature(value, secret)}`;
+}
+function unsignCookieValue(value, secret) {
+  const signedValue = value.startsWith("s:") ? value.slice(2) : value;
+  const signatureIndex = signedValue.lastIndexOf(".");
+  if (signatureIndex <= 0) return void 0;
+  const unsignedValue = signedValue.slice(0, signatureIndex);
+  const expected = `${unsignedValue}.${signature(unsignedValue, secret)}`;
+  const actualBuffer = Buffer.from(signedValue);
+  const expectedBuffer = Buffer.from(expected);
+  if (actualBuffer.length !== expectedBuffer.length) return void 0;
+  return timingSafeEqual(actualBuffer, expectedBuffer) ? unsignedValue : void 0;
+}
+
 // server/middleware/auth.ts
 var SESSION_COOKIE = "onepws_session";
+function readSessionToken(req) {
+  const parsedToken = req.signedCookies?.[SESSION_COOKIE];
+  if (parsedToken) return parsedToken;
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return void 0;
+  const rawCookie = cookieHeader.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${SESSION_COOKIE}=`));
+  if (!rawCookie) return void 0;
+  const rawValue = rawCookie.slice(SESSION_COOKIE.length + 1);
+  const decodedValue = decodeURIComponent(rawValue);
+  return unsignCookieValue(decodedValue, getEnv().COOKIE_SECRET);
+}
 async function optionalUser(req, _res, next) {
   try {
-    const token = req.signedCookies?.[SESSION_COOKIE];
+    const token = readSessionToken(req);
     if (!token) return next();
     await connectDB();
     const payload = verifySession(token);
@@ -1324,7 +1355,7 @@ function delay(value) {
     recordedAt: iso(record.recordedAt) ?? (/* @__PURE__ */ new Date()).toISOString()
   };
 }
-function signature(value) {
+function signature2(value) {
   if (!value || typeof value !== "object") return null;
   const record = value;
   return {
@@ -1417,9 +1448,9 @@ function toDomainComplaint(doc, priorityMultiplier2) {
     d7LongTermResult: doc.d7LongTermResult ?? "",
     d7NoRepeatConfirmed: Boolean(doc.d7NoRepeatConfirmed),
     signatures: {
-      prepared: signature(doc.signatures?.prepared),
-      reviewed: signature(doc.signatures?.reviewed),
-      approved: signature(doc.signatures?.approved)
+      prepared: signature2(doc.signatures?.prepared),
+      reviewed: signature2(doc.signatures?.reviewed),
+      approved: signature2(doc.signatures?.approved)
     }
   };
 }
@@ -4313,13 +4344,13 @@ function eightDExcelSheets(data) {
     Effectiveness: String(capa.effectiveness ?? "Pending")
   }));
   const signatures = ["prepared", "reviewed", "approved"].map((role) => {
-    const signature2 = complaint.signatures?.[role];
+    const signature3 = complaint.signatures?.[role];
     return {
       Role: role === "prepared" ? "Prepared By" : role === "reviewed" ? "Reviewed By" : "Approved By",
-      Name: signature2?.name ?? "Not signed",
-      Designation: signature2?.designation ?? "",
-      Department: signature2?.department ?? "",
-      "Signed At": dateTime(signature2?.at)
+      Name: signature3?.name ?? "Not signed",
+      Designation: signature3?.designation ?? "",
+      Department: signature3?.department ?? "",
+      "Signed At": dateTime(signature3?.at)
     };
   });
   return { summary, team, actions, fiveWhy, documents, capaRows, signatures };
@@ -4548,11 +4579,11 @@ function createUploadSignature(purpose) {
   const { cloudinary: client, env } = configuredCloudinary();
   const timestamp = Math.round(Date.now() / 1e3);
   const folder = folderFor(purpose);
-  const signature2 = client.utils.api_sign_request({ timestamp, folder }, env.CLOUDINARY_API_SECRET);
+  const signature3 = client.utils.api_sign_request({ timestamp, folder }, env.CLOUDINARY_API_SECRET);
   return {
     timestamp,
     folder,
-    signature: signature2,
+    signature: signature3,
     apiKey: env.CLOUDINARY_API_KEY,
     cloudName: env.CLOUDINARY_CLOUD_NAME,
     maxBytes: MAX_UPLOAD_BYTES,
@@ -4831,7 +4862,6 @@ function createRateLimit(options) {
 }
 
 // server/routes/auth.routes.ts
-import { createHmac } from "node:crypto";
 var authRouter = Router4();
 var loginRateLimit = createRateLimit({
   keyPrefix: "auth:login",
@@ -4851,13 +4881,9 @@ var resetRateLimit = createRateLimit({
   max: 20,
   message: "Too many password reset attempts. Please try again later."
 });
-function signCookie(value) {
-  const signature2 = createHmac("sha256", getEnv().COOKIE_SECRET).update(value).digest("base64").replace(/=+$/, "");
-  return `s:${value}.${signature2}`;
-}
 function sessionCookieHeader(token) {
   const parts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(signCookie(token))}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(signCookieValue(token, getEnv().COOKIE_SECRET))}`,
     `Max-Age=${Math.floor(sessionMaxAgeMs() / 1e3)}`,
     "Path=/",
     "HttpOnly",

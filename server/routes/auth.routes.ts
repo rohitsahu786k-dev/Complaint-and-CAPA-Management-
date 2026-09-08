@@ -19,7 +19,7 @@ import { sendTemplatedEmail } from "../services/email.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
-import { createHmac } from "node:crypto";
+import { signCookieValue } from "../utils/signed-cookie";
 
 export const authRouter = Router();
 
@@ -42,14 +42,9 @@ const resetRateLimit = createRateLimit({
   message: "Too many password reset attempts. Please try again later."
 });
 
-function signCookie(value: string) {
-  const signature = createHmac("sha256", getEnv().COOKIE_SECRET).update(value).digest("base64").replace(/=+$/, "");
-  return `s:${value}.${signature}`;
-}
-
 function sessionCookieHeader(token: string) {
   const parts = [
-    `${SESSION_COOKIE}=${encodeURIComponent(signCookie(token))}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(signCookieValue(token, getEnv().COOKIE_SECRET))}`,
     `Max-Age=${Math.floor(sessionMaxAgeMs() / 1000)}`,
     "Path=/",
     "HttpOnly",
