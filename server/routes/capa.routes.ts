@@ -14,8 +14,9 @@ import {
   updateCapa,
   verifyEffectiveness
 } from "../services/capa.service";
+import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
-import { ok } from "../utils/http";
+import { httpError, ok } from "../utils/http";
 import { Types } from "mongoose";
 
 export const capaRouter = Router();
@@ -25,10 +26,32 @@ capaRouter.use(requireUser);
 capaRouter.get(
   "/",
   asyncHandler(async (req, res) => {
-    const query = capaListQuerySchema.parse(req.query);
+    const isFullExport = req.query.pageSize === "5000";
+    if (isFullExport) {
+      const permissions = req.user?.role?.permissions || [];
+      if (!permissions.includes("*") && !permissions.includes("export.all")) {
+        throw httpError(403, "You do not have permission to export CAPAs");
+      }
+    }
+
+    const query = capaListQuerySchema.parse({
+      ...req.query,
+      ...(isFullExport ? { page: 1, pageSize: 100 } : {})
+    });
+    const effectiveQuery = isFullExport ? { ...query, page: 1, pageSize: 5000 } : query;
     await connectDB();
-    const { rows, total } = await listCapas(query, req.user);
-    return ok(res, paginate(rows, total, query));
+    const { rows, total } = await listCapas(effectiveQuery, req.user);
+
+    if (isFullExport) {
+      await writeAudit({
+        actor: req.user,
+        action: "EXPORT",
+        entity: "Capa",
+        metadata: { count: rows.length, total, exportType: "full-entity" }
+      });
+    }
+
+    return ok(res, paginate(rows, total, effectiveQuery));
   })
 );
 
