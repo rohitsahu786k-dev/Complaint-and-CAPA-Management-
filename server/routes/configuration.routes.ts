@@ -171,6 +171,21 @@ configurationRouter.post(
   })
 );
 
+configurationRouter.patch(
+  "/categories/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const input = categorySchema.partial().parse(req.body);
+    const params = z.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const before = await Category.findById(params.id).lean();
+    if (!before) throw httpError(404, "Category not found");
+    const category = await Category.findByIdAndUpdate(params.id, input, { new: true });
+    await writeAudit({ actor: req.user, action: "MASTER_DATA_CHANGE", entity: "Category", entityId: params.id, before, after: input });
+    return ok(res, { category });
+  })
+);
+
 configurationRouter.post(
   "/priorities",
   requirePermission("*"),
