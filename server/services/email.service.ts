@@ -26,6 +26,15 @@ export type SendEmailResult = {
   message?: string;
 };
 
+function normalizePortalLinks(data: Record<string, string | number | undefined | null>, appUrl: string) {
+  const normalized = { ...data };
+  for (const [key, value] of Object.entries(normalized)) {
+    if (!/(url|link)$/i.test(key) || typeof value !== "string" || !value.startsWith("/")) continue;
+    normalized[key] = new URL(value, appUrl).toString();
+  }
+  return normalized;
+}
+
 export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promise<SendEmailResult> {
   if (input.dedupeKey) {
     const alreadySent = await hasDedupeKeyBeenSent(input.dedupeKey);
@@ -79,13 +88,14 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
 
   const appUrl = getAppUrl();
   const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const normalizedInputData = normalizePortalLinks(input.data, appUrl);
   const mergedData: Record<string, string | number | undefined | null> = {
     companyName: "ONEPWS Private Limited",
     appUrl,
     logoUrl: DEFAULT_EMAIL_LOGO_URL,
     today,
     recipientName: cleanRecipients[0],
-    ...input.data
+    ...normalizedInputData
   };
 
   const renderedSubject = renderTemplate(template.subject, mergedData).rendered;
