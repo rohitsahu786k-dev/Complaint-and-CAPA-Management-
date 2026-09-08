@@ -4864,13 +4864,29 @@ authRouter.post(
   "/login",
   loginRateLimit,
   asyncHandler(async (req, res) => {
-    const input = loginSchema.parse(req.body);
-    await connectDB();
-    const user = await authenticate(input.username, input.password);
-    res.cookie(SESSION_COOKIE, signSession(String(user._id)), cookieOptions());
-    const apiUser = sanitizeUser(user);
-    await writeAudit({ actor: apiUser, action: "LOGIN", entity: "User", entityId: apiUser.id });
-    return ok(res, { user: apiUser });
+    let stage = "parse";
+    try {
+      const input = loginSchema.parse(req.body);
+      stage = "database";
+      await connectDB();
+      stage = "authenticate";
+      const user = await authenticate(input.username, input.password);
+      stage = "session";
+      res.cookie(SESSION_COOKIE, signSession(String(user._id)), cookieOptions());
+      stage = "response";
+      const apiUser = sanitizeUser(user);
+      stage = "audit";
+      await writeAudit({ actor: apiUser, action: "LOGIN", entity: "User", entityId: apiUser.id });
+      return ok(res, { user: apiUser });
+    } catch (error) {
+      if (error?.status && error.status !== 500) throw error;
+      console.error("Login failed", {
+        stage,
+        name: error instanceof Error ? error.name : "UnknownError",
+        message: error instanceof Error ? error.message : "Unknown login error"
+      });
+      throw httpError(500, "Login failed", [{ field: "stage", message: stage }]);
+    }
   })
 );
 authRouter.post(
