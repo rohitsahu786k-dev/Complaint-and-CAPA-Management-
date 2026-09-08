@@ -20,21 +20,23 @@ const detectors = [
   },
   {
     name: "Non-placeholder SMTP app password assignment",
-    regex: /SMTP_APP_PASSWORD\s*=\s*(?!\s*$|<|YOUR_|REPLACE_|CHANGE_ME|xxxx)[^\s#]{8,}/gim
+    regex: /^\+?SMTP_APP_PASSWORD[ \t]*=[ \t]*(?![ \t]*(?:$|<|YOUR_|REPLACE_|CHANGE_ME|xxxx))[^\r\n#]{8,}$/gim
   },
   {
     name: "Non-placeholder Cloudinary API secret assignment",
-    regex: /CLOUDINARY_API_SECRET\s*=\s*(?!\s*$|<|YOUR_|REPLACE_|CHANGE_ME)[^\s#]{8,}/gim
+    regex: /^\+?CLOUDINARY_API_SECRET[ \t]*=[ \t]*(?![ \t]*(?:$|<|YOUR_|REPLACE_|CHANGE_ME))[^\r\n#]{8,}$/gim
   }
 ];
 
 const excluded = new Set(["scripts/secret-scan.mjs", "package-lock.json"]);
 
 function containsSecret(text) {
-  return detectors.filter(({ regex }) => {
-    regex.lastIndex = 0;
-    return regex.test(text);
-  }).map(({ name }) => name);
+  return detectors
+    .filter(({ regex }) => {
+      regex.lastIndex = 0;
+      return regex.test(text);
+    })
+    .map(({ name }) => name);
 }
 
 let failed = false;
@@ -62,7 +64,9 @@ try {
   const historyFindings = containsSecret(history);
   if (historyFindings.length) {
     failed = true;
-    console.error(`Secret hygiene failure in Git history (${historyFindings.join(", ")}). Rotate the affected credential and purge history before release.`);
+    console.error(
+      `Secret hygiene failure in Git history (${historyFindings.join(", ")}). Rotate the affected credential and purge history before release.`
+    );
   }
 } catch (error) {
   console.error("Unable to inspect Git history for secrets.");
