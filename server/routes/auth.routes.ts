@@ -64,29 +64,13 @@ authRouter.post(
   "/login",
   loginRateLimit,
   asyncHandler(async (req, res) => {
-    let stage = "parse";
-    try {
-      const input = loginSchema.parse(req.body);
-      stage = "database";
-      await connectDB();
-      stage = "authenticate";
-      const user = await authenticate(input.username, input.password);
-      stage = "session";
-      res.setHeader("Set-Cookie", sessionCookieHeader(signSession(String(user._id))));
-      stage = "response";
-      const apiUser = sanitizeUser(user);
-      stage = "audit";
-      await writeAudit({ actor: apiUser, action: "LOGIN", entity: "User", entityId: apiUser.id });
-      return ok(res, { user: apiUser });
-    } catch (error) {
-      if ((error as { status?: number })?.status && (error as { status?: number }).status !== 500) throw error;
-      console.error("Login failed", {
-        stage,
-        name: error instanceof Error ? error.name : "UnknownError",
-        message: error instanceof Error ? error.message : "Unknown login error"
-      });
-      throw httpError(500, "Login failed", [{ field: "stage", message: stage }]);
-    }
+    const input = loginSchema.parse(req.body);
+    await connectDB();
+    const user = await authenticate(input.username, input.password);
+    res.setHeader("Set-Cookie", sessionCookieHeader(signSession(String(user._id))));
+    const apiUser = sanitizeUser(user);
+    await writeAudit({ actor: apiUser, action: "LOGIN", entity: "User", entityId: apiUser.id });
+    return ok(res, { user: apiUser });
   })
 );
 
