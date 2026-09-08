@@ -22,8 +22,6 @@ import { ComplaintNote } from "../models/ComplaintNote";
 import { AuditLog } from "../models/AuditLog";
 import {
   closeComplaint,
-  completeStage,
-  createComplaint,
   loadComplaintContext,
   reopenComplaint,
   reviewRepeatLinkage,
@@ -39,6 +37,7 @@ import {
   saveEightDHardened
 } from "../services/complaint-hardening.service";
 import { listComplaintsWithTatFilter } from "../services/complaint-list-hardening.service";
+import { completeStageHardened, createComplaintHardened } from "../services/complaint-workflow-hardening.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
@@ -63,7 +62,7 @@ complaintRouter.post(
   asyncHandler(async (req, res) => {
     const input = complaintCreateSchema.parse(req.body);
     await connectDB();
-    const complaint = await createComplaint(input, req.user);
+    const complaint = await createComplaintHardened(input, req.user);
     return ok(res, { complaint }, 201);
   })
 );
@@ -92,7 +91,7 @@ complaintRouter.post(
   asyncHandler(async (req, res) => {
     const input = stageCompleteSchema.parse(req.body);
     await connectDB();
-    const complaint = await completeStage(req.params.id, input, req.user);
+    const complaint = await completeStageHardened(req.params.id, input, req.user);
     return ok(res, { complaint });
   })
 );
