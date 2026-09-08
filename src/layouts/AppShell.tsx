@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Repeat2,
+  RotateCcw,
   Settings,
   ShieldCheck,
   Timer,
@@ -73,12 +74,12 @@ const NAV: NavGroup[] = [
         icon: UploadCloud,
         visible: (permissions) => permissions.isMasterAdmin || permissions.can("complaint.create") || permissions.can("export.all")
       },
+      { to: "/system-restore", label: "System Restore", icon: RotateCcw, visible: (permissions) => permissions.isMasterAdmin },
       { to: "/master-data", label: "Master Data", icon: Settings, visible: (permissions) => permissions.isMasterAdmin },
       { to: "/email-admin", label: "Email Automation", icon: Mail, visible: (permissions) => permissions.isMasterAdmin }
     ]
   }
 ];
-
 
 export function AppShell() {
   const [drawerOpen, setDrawerOpen] = useState(false);
