@@ -8,8 +8,10 @@ import { Attachment } from "../models/Attachment";
 import { Capa } from "../models/Capa";
 import { Complaint } from "../models/Complaint";
 import { ComplaintNote } from "../models/ComplaintNote";
+import { Department } from "../models/Department";
 import { Employee } from "../models/Employee";
 import { Notification } from "../models/Notification";
+import { Priority } from "../models/masters";
 import { User } from "../models/User";
 import { deleteAttachment } from "./attachment.service";
 import { writeAudit } from "./audit.service";
@@ -68,10 +70,8 @@ async function hydrateTeamMembers(team: EightDInput["d1Team"]) {
 }
 
 export async function getHardenedComplaintDetail(complaintId: string, user: ApiUser | undefined) {
-  const [detail, context] = await Promise.all([
-    getComplaintDetail(complaintId, user),
-    loadComplaintContext(complaintId, user)
-  ]);
+  const detail = await getComplaintDetail(complaintId, user);
+  const context = await loadComplaintContext(complaintId, user);
   const tatConfig = await resolveTatConfig(context.doc.company);
   const targetDates = {
     d3: computeActionTargetDate(context.domain, "d3", tatConfig),
@@ -81,10 +81,10 @@ export async function getHardenedComplaintDetail(complaintId: string, user: ApiU
 
   const [owner, priority, responsibleDept, internalDept, againstDept] = await Promise.all([
     context.doc.owner ? User.findById(context.doc.owner).select("name username email").lean() : null,
-    context.doc.populate("priority").then(() => context.doc.priority as unknown as { _id?: Types.ObjectId; name?: string; color?: string }),
-    context.doc.responsibleDept ? context.doc.populate("responsibleDept").then(() => context.doc.responsibleDept as unknown as { _id?: Types.ObjectId; name?: string }) : null,
-    context.doc.internalDept ? context.doc.populate("internalDept").then(() => context.doc.internalDept as unknown as { _id?: Types.ObjectId; name?: string }) : null,
-    context.doc.againstDept ? context.doc.populate("againstDept").then(() => context.doc.againstDept as unknown as { _id?: Types.ObjectId; name?: string }) : null
+    context.doc.priority ? Priority.findById(context.doc.priority).select("name color").lean() : null,
+    context.doc.responsibleDept ? Department.findById(context.doc.responsibleDept).select("name").lean() : null,
+    context.doc.internalDept ? Department.findById(context.doc.internalDept).select("name").lean() : null,
+    context.doc.againstDept ? Department.findById(context.doc.againstDept).select("name").lean() : null
   ]);
 
   return {
@@ -92,14 +92,10 @@ export async function getHardenedComplaintDetail(complaintId: string, user: ApiU
     targetDates,
     resolved: {
       owner: owner ? { _id: String(owner._id), name: owner.name, username: owner.username, email: owner.email ?? "" } : null,
-      priority:
-        priority && priority._id
-          ? { _id: String(priority._id), name: priority.name ?? "", color: priority.color ?? "" }
-          : null,
-      responsibleDept:
-        responsibleDept && responsibleDept._id ? { _id: String(responsibleDept._id), name: responsibleDept.name ?? "" } : null,
-      internalDept: internalDept && internalDept._id ? { _id: String(internalDept._id), name: internalDept.name ?? "" } : null,
-      againstDept: againstDept && againstDept._id ? { _id: String(againstDept._id), name: againstDept.name ?? "" } : null
+      priority: priority ? { _id: String(priority._id), name: priority.name, color: priority.color } : null,
+      responsibleDept: responsibleDept ? { _id: String(responsibleDept._id), name: responsibleDept.name } : null,
+      internalDept: internalDept ? { _id: String(internalDept._id), name: internalDept.name } : null,
+      againstDept: againstDept ? { _id: String(againstDept._id), name: againstDept.name } : null
     }
   };
 }
@@ -162,8 +158,10 @@ export async function assignComplaintOwner(complaintId: string, ownerId: string,
   const nextOwner = await User.findOne({ _id: ownerId, active: true }).populate("role").lean();
   if (!nextOwner) throw httpError(404, "The selected owner is not an active portal user");
   const ownerCompanies = (nextOwner.companyIds ?? []).map((id) => String(id));
+  const role = nextOwner.role as unknown as { permissions?: string[] } | null;
+  const canSeeAllCompanies = Boolean(role?.permissions?.includes("*") || role?.permissions?.includes("view.all"));
   const companyId = String(context.doc.company);
-  if (!ownerCompanies.includes(companyId) && ownerCompanies.length > 0 && !ownerCompanies.includes("*")) {
+  if (!canSeeAllCompanies && !ownerCompanies.includes(companyId)) {
     throw businessRuleError("The selected owner is outside this complaint company", [
       { field: "owner", section: "Assignment", message: "Choose an active user assigned to this company" }
     ]);
