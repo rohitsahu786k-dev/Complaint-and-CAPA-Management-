@@ -8,12 +8,11 @@ import { requireUser } from "../middleware/auth";
 import {
   attachEvidence,
   createCapa,
-  deleteCapa,
   listCapas,
   reviewEvidence,
-  updateCapa,
   verifyEffectiveness
 } from "../services/capa.service";
+import { deleteCapaCascade, updateCapaHardened } from "../services/capa-hardening.service";
 import { asyncHandler } from "../utils/async-handler";
 import { ok } from "../utils/http";
 import { Types } from "mongoose";
@@ -47,7 +46,7 @@ capaRouter.patch(
   asyncHandler(async (req, res) => {
     const input = capaUpdateSchema.parse(req.body);
     await connectDB();
-    const capa = await updateCapa(req.params.id, input, req.user);
+    const capa = await updateCapaHardened(req.params.id, input, req.user);
     return ok(res, { capa });
   })
 );
@@ -56,7 +55,7 @@ capaRouter.delete(
   "/:id",
   asyncHandler(async (req, res) => {
     await connectDB();
-    return ok(res, await deleteCapa(req.params.id, req.user));
+    return ok(res, await deleteCapaCascade(req.params.id, req.user));
   })
 );
 
