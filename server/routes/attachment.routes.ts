@@ -38,6 +38,9 @@ async function authorizeTarget(entityType: EntityType, entityId: string, purpose
 
   if (entityType === "Complaint") {
     const context = await loadComplaintContext(entityId, reqUser);
+    if (write && context.doc.closedAt && !isMasterAdmin(context.actor)) {
+      throw httpError(409, "Reopen the complaint before changing its attachments");
+    }
     if (write && !canEditComplaint(context.actor, context.domain)) throw httpError(403, "You cannot attach files to this complaint");
     return { company: String(context.doc.company) };
   }
@@ -110,10 +113,15 @@ attachmentRouter.delete(
     if (!attachment) throw httpError(404, "Attachment not found");
 
     const purpose = attachment.purpose as AttachmentPurpose;
-    const target = await authorizeTarget(attachment.entityType as EntityType, String(attachment.entityId), purpose, req.user, true).catch(() => null);
-    let allowed = Boolean(target);
-    if (!allowed && String(attachment.uploadedBy) === req.user?.id) allowed = true;
-    if (!allowed && isMasterAdmin(await requireActor(req.user))) allowed = true;
+    let allowed = false;
+    try {
+      await authorizeTarget(attachment.entityType as EntityType, String(attachment.entityId), purpose, req.user, true);
+      allowed = true;
+    } catch (error) {
+      const actor = await requireActor(req.user);
+      if (!isMasterAdmin(actor)) throw error;
+      allowed = true;
+    }
 
     return ok(res, await deleteAttachment(req.params.id, req.user, allowed));
   })
