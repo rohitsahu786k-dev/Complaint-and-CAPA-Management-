@@ -18,7 +18,11 @@ export function LoginPage() {
   const form = useForm<LoginInput>({ resolver: zodResolver(loginSchema), defaultValues: { username: "", password: "" } });
 
   async function onSubmit(input: LoginInput) {
-    await login.mutateAsync(input);
+    const result = await login.mutateAsync(input);
+    if (result.user.forcePasswordChange) {
+      navigate("/profile", { replace: true, state: { passwordChangeRequired: true } });
+      return;
+    }
     navigate(from, { replace: true });
   }
 
