@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import { getAppUrl } from "../lib/app-url";
 import { DEFAULT_EMAIL_LOGO_URL } from "../lib/email-layout";
-import { renderTemplate } from "../lib/email-template-renderer";
+import { escapeHtml, renderTemplate } from "../lib/email-template-renderer";
 import { createTransporter, fromAddress, isSmtpConfigured } from "../lib/mailer";
 import { getActiveTemplateByTrigger } from "./email-template.service";
 import { hasDedupeKeyBeenSent, writeEmailLog, getEmailLogById } from "./email-log.service";
@@ -26,13 +26,7 @@ export type SendEmailResult = {
   message?: string;
 };
 
-/**
- * Central templated email sending dispatch.
- * Performs idempotent deduplication check, template resolution, safe variable rendering,
- * SMTP delivery, and exhaustive audit logging.
- */
 export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promise<SendEmailResult> {
-  // 1. Idempotency Check
   if (input.dedupeKey) {
     const alreadySent = await hasDedupeKeyBeenSent(input.dedupeKey);
     if (alreadySent) {
@@ -52,7 +46,6 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
     }
   }
 
-  // 2. Resolve Active Template
   const template = await getActiveTemplateByTrigger(input.triggerEvent);
   if (!template) {
     const skippedLog = await writeEmailLog({
@@ -68,7 +61,6 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
     return { status: "skipped", logId: String(skippedLog._id), message: "No active template" };
   }
 
-  // 3. Ensure Recipients Exist
   const cleanRecipients = (input.recipients || []).filter(Boolean);
   if (cleanRecipients.length === 0) {
     const skippedLog = await writeEmailLog({
@@ -85,7 +77,6 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
     return { status: "skipped", logId: String(skippedLog._id), message: "No recipients" };
   }
 
-  // 4. Resolve Template Variables
   const appUrl = getAppUrl();
   const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   const mergedData: Record<string, string | number | undefined | null> = {
@@ -101,7 +92,6 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
   const renderedHtml = renderTemplate(template.htmlBody, mergedData).rendered;
   const renderedText = renderTemplate(template.textBody, mergedData).rendered;
 
-  // 5. Check SMTP Configuration
   if (!isSmtpConfigured()) {
     const skippedLog = await writeEmailLog({
       templateKey: template.templateKey,
@@ -121,7 +111,6 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
     return { status: "skipped", logId: String(skippedLog._id), message: "SMTP not configured" };
   }
 
-  // 6. Send Mail via Nodemailer Transporter
   try {
     const transporter = createTransporter();
     await transporter.sendMail({
@@ -179,21 +168,13 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
   }
 }
 
-/**
- * Re-attempts a failed email log entry safely.
- */
 export async function retryEmail(logId: string): Promise<SendEmailResult> {
   const log = await getEmailLogById(logId);
   if (!log) throw httpError(404, "Log record not found");
-
-  if (log.status === "sent") {
-    return { status: "sent", logId: String(log._id), message: "Email was already sent successfully" };
-  }
+  if (log.status === "sent") return { status: "sent", logId: String(log._id), message: "Email was already sent successfully" };
 
   const payload = (log.payload || {}) as Record<string, unknown>;
   const data = (payload.data || {}) as Record<string, string | number>;
-
-  // Attempt re-send
   const result = await sendTemplatedEmail({
     triggerEvent: log.triggerEvent,
     recipients: log.recipients,
@@ -205,72 +186,40 @@ export async function retryEmail(logId: string): Promise<SendEmailResult> {
     sentBySystem: false
   });
 
-  // Update retry attempt count on the original log record
-  await EmailLog.findByIdAndUpdate(logId, {
-    $inc: { attemptCount: 1 }
-  });
-
+  await EmailLog.findByIdAndUpdate(logId, { $inc: { attemptCount: 1 } });
   return result;
 }
 
-/**
- * Sends an immediate live test email to verify SMTP configuration.
- */
 export async function sendRawTestEmail(input: { to: string; subject?: string; message?: string }): Promise<SendEmailResult> {
-  if (!isSmtpConfigured()) {
-    throw httpError(400, "SMTP credentials are not configured on this server");
-  }
+  if (!isSmtpConfigured()) throw httpError(400, "SMTP credentials are not configured on this server");
 
   const subject = input.subject || "ONEPWS Portal - SMTP Test Email";
   const appUrl = getAppUrl();
   const testMessage = input.message || "This is a verification test email from the ONEPWS Complaint & CAPA Management Portal.";
-
+  const safeMessage = escapeHtml(testMessage);
+  const safeAppUrl = escapeHtml(appUrl);
   const html = `
     <div style="font-family: 'DM Sans', Arial, sans-serif; padding: 24px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
       <h2 style="color: #E31E25; margin-top: 0;">SMTP Test Verification</h2>
-      <p style="color: #1E293B; font-size: 14px;">${testMessage}</p>
-      <p style="color: #64748B; font-size: 12px; margin-top: 24px;">Sent from: <a href="${appUrl}" style="color: #E31E25;">${appUrl}</a></p>
+      <p style="color: #1E293B; font-size: 14px;">${safeMessage}</p>
+      <p style="color: #64748B; font-size: 12px; margin-top: 24px;">Sent from: <a href="${safeAppUrl}" style="color: #E31E25;">${safeAppUrl}</a></p>
     </div>
   `;
 
   try {
     const transporter = createTransporter();
-    await transporter.sendMail({
-      from: fromAddress(),
-      to: input.to,
-      subject,
-      html,
-      text: `${subject}\n\n${testMessage}\n\nPortal: ${appUrl}`
-    });
-
-    const log = await writeEmailLog({
-      triggerEvent: "TEST_SMTP",
-      recipients: [input.to],
-      subject,
-      status: "sent",
-      sentBySystem: false
-    });
-
+    await transporter.sendMail({ from: fromAddress(), to: input.to, subject, html, text: `${subject}\n\n${testMessage}\n\nPortal: ${appUrl}` });
+    const log = await writeEmailLog({ triggerEvent: "TEST_SMTP", recipients: [input.to], subject, status: "sent", sentBySystem: false });
     return { status: "sent", logId: String(log._id) };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Failed to send test email";
-    await writeEmailLog({
-      triggerEvent: "TEST_SMTP",
-      recipients: [input.to],
-      subject,
-      status: "failed",
-      errorMessage: msg,
-      sentBySystem: false
-    });
+    await writeEmailLog({ triggerEvent: "TEST_SMTP", recipients: [input.to], subject, status: "failed", errorMessage: msg, sentBySystem: false });
     throw httpError(500, `SMTP Test failed: ${msg}`);
   }
 }
 
-/**
- * Backward compatible sendMail adapter.
- */
+/** Backward compatible transport helper retained for non-templated internal calls. */
 export async function sendMail(input: { to: string[]; subject: string; html: string; text: string }) {
   if (input.to.length === 0) return { status: "skipped" as const };
   return sendRawTestEmail({ to: input.to[0], subject: input.subject, message: input.text });
 }
-
