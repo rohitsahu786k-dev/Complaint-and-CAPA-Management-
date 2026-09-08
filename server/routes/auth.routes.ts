@@ -46,6 +46,7 @@ function cookieOptions() {
     httpOnly: true,
     secure: isProduction(),
     sameSite: "lax" as const,
+    signed: true,
     maxAge: sessionMaxAgeMs(),
     path: "/"
   };
