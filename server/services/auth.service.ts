@@ -62,7 +62,7 @@ export function sanitizeUser(user: UserDocument | (Record<string, unknown> & { _
 export async function authenticate(username: string, password: string) {
   const user = await User.findOne({ username: username.toLowerCase(), active: true })
     .select("+passwordHash +failedLoginCount +lockedUntil")
-    .populate("role");
+    .exec();
 
   const generic = httpError(401, "Invalid username or password");
   if (!user) throw generic;
@@ -70,16 +70,27 @@ export async function authenticate(username: string, password: string) {
 
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) {
-    user.failedLoginCount = (user.failedLoginCount || 0) + 1;
-    if (user.failedLoginCount >= 5) user.lockedUntil = new Date(Date.now() + 15 * 60 * 1000);
-    await user.save();
+    const failedLoginCount = (user.failedLoginCount || 0) + 1;
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          failedLoginCount,
+          ...(failedLoginCount >= 5 ? { lockedUntil: new Date(Date.now() + 15 * 60 * 1000) } : {})
+        }
+      }
+    );
     throw generic;
   }
 
-  user.failedLoginCount = 0;
-  user.lockedUntil = undefined;
-  user.lastLoginAt = new Date();
-  await user.save();
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: { failedLoginCount: 0, lastLoginAt: new Date() },
+      $unset: { lockedUntil: "" }
+    }
+  );
+  await user.populate("role");
   return user;
 }
 

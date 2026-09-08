@@ -189,21 +189,32 @@ function sanitizeUser(user) {
   };
 }
 async function authenticate(username, password) {
-  const user = await User.findOne({ username: username.toLowerCase(), active: true }).select("+passwordHash +failedLoginCount +lockedUntil").populate("role");
+  const user = await User.findOne({ username: username.toLowerCase(), active: true }).select("+passwordHash +failedLoginCount +lockedUntil").exec();
   const generic = httpError(401, "Invalid username or password");
   if (!user) throw generic;
   if (user.lockedUntil && user.lockedUntil > /* @__PURE__ */ new Date()) throw generic;
   const ok2 = await verifyPassword(password, user.passwordHash);
   if (!ok2) {
-    user.failedLoginCount = (user.failedLoginCount || 0) + 1;
-    if (user.failedLoginCount >= 5) user.lockedUntil = new Date(Date.now() + 15 * 60 * 1e3);
-    await user.save();
+    const failedLoginCount = (user.failedLoginCount || 0) + 1;
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          failedLoginCount,
+          ...failedLoginCount >= 5 ? { lockedUntil: new Date(Date.now() + 15 * 60 * 1e3) } : {}
+        }
+      }
+    );
     throw generic;
   }
-  user.failedLoginCount = 0;
-  user.lockedUntil = void 0;
-  user.lastLoginAt = /* @__PURE__ */ new Date();
-  await user.save();
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $set: { failedLoginCount: 0, lastLoginAt: /* @__PURE__ */ new Date() },
+      $unset: { lockedUntil: "" }
+    }
+  );
+  await user.populate("role");
   return user;
 }
 async function createPasswordResetToken(emailOrUsername) {
