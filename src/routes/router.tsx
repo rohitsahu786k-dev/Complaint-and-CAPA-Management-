@@ -11,7 +11,6 @@ import { UnauthorizedPage } from "@/routes/app/UnauthorizedPage";
 import { NotFoundPage } from "@/routes/app/NotFoundPage";
 import { Spinner } from "@/components/ui/Field";
 
-// Feature and application pages
 const ComplaintsListPage = lazy(() =>
   import("@/routes/complaints/ComplaintsListPage").then((m) => ({ default: m.ComplaintsListPage }))
 );
@@ -44,6 +43,9 @@ const ReportsPage = lazy(() =>
 );
 const ImportExportPage = lazy(() =>
   import("@/routes/app/ImportExportPage").then((m) => ({ default: m.ImportExportPage }))
+);
+const SystemRestorePage = lazy(() =>
+  import("@/routes/app/SystemRestorePage").then((m) => ({ default: m.SystemRestorePage }))
 );
 const MasterDataPage = lazy(() =>
   import("@/routes/app/MasterDataPage").then((m) => ({ default: m.MasterDataPage }))
@@ -163,6 +165,14 @@ export const router = createBrowserRouter([
             )
           },
           {
+            path: "system-restore",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <SystemRestorePage />
+              </Suspense>
+            )
+          },
+          {
             path: "master-data",
             element: (
               <Suspense fallback={<PageLoader />}>
@@ -178,11 +188,7 @@ export const router = createBrowserRouter([
               </Suspense>
             )
           },
-          {
-            path: "settings",
-            element: <Navigate to="/master-data" replace />
-          },
-
+          { path: "settings", element: <Navigate to="/master-data" replace /> },
           {
             path: "notifications",
             element: (
