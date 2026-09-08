@@ -24,7 +24,6 @@ import {
   closeComplaint,
   completeStage,
   createComplaint,
-  listComplaints,
   loadComplaintContext,
   reopenComplaint,
   reviewRepeatLinkage,
@@ -39,6 +38,7 @@ import {
   getHardenedComplaintDetail,
   saveEightDHardened
 } from "../services/complaint-hardening.service";
+import { listComplaintsWithTatFilter } from "../services/complaint-list-hardening.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
@@ -52,7 +52,7 @@ complaintRouter.get(
   asyncHandler(async (req, res) => {
     const query = complaintListQuerySchema.parse(req.query);
     await connectDB();
-    const { rows, total } = await listComplaints(query, req.user);
+    const { rows, total } = await listComplaintsWithTatFilter(query, req.user);
     return ok(res, paginate(rows, total, query));
   })
 );
