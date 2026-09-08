@@ -5,10 +5,10 @@ import { requirePermission, requireUser } from "../middleware/auth";
 import {
   COMPLAINT_IMPORT_COLUMNS,
   commitComplaintImport,
-  exportBackup,
   migrateLegacyDatabase,
   previewComplaintImport
 } from "../services/import.service";
+import { exportSystemBackup, restoreSystemBackup } from "../services/system-backup.service";
 import { asyncHandler } from "../utils/async-handler";
 import { ok } from "../utils/http";
 
@@ -66,7 +66,27 @@ importRouter.get(
   requirePermission("*"),
   asyncHandler(async (req, res) => {
     await connectDB();
-    return ok(res, await exportBackup(req.user));
+    return ok(res, await exportSystemBackup(req.user));
+  })
+);
+
+/**
+ * Safe system restore. A dry-run is the default. Confirmed execution is merge-only:
+ * existing production records are never overwritten or deleted.
+ */
+importRouter.post(
+  "/restore",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const input = z
+      .object({
+        payload: z.unknown(),
+        dryRun: z.boolean().default(true),
+        confirmation: z.string().optional()
+      })
+      .parse(req.body);
+    await connectDB();
+    return ok(res, await restoreSystemBackup(input.payload, { dryRun: input.dryRun, confirmation: input.confirmation }, req.user));
   })
 );
 
