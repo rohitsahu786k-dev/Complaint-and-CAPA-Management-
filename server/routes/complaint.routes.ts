@@ -46,10 +46,32 @@ complaintRouter.use(requireUser);
 complaintRouter.get(
   "/",
   asyncHandler(async (req, res) => {
-    const query = complaintListQuerySchema.parse(req.query);
+    const isFullExport = req.query.pageSize === "5000";
+    if (isFullExport) {
+      const permissions = req.user?.role?.permissions || [];
+      if (!permissions.includes("*") && !permissions.includes("export.all")) {
+        throw httpError(403, "You do not have permission to export complaints");
+      }
+    }
+
+    const query = complaintListQuerySchema.parse({
+      ...req.query,
+      ...(isFullExport ? { page: 1, pageSize: 100 } : {})
+    });
+    const effectiveQuery = isFullExport ? { ...query, page: 1, pageSize: 5000 } : query;
     await connectDB();
-    const { rows, total } = await listComplaints(query, req.user);
-    return ok(res, paginate(rows, total, query));
+    const { rows, total } = await listComplaints(effectiveQuery, req.user);
+
+    if (isFullExport) {
+      await writeAudit({
+        actor: req.user,
+        action: "EXPORT",
+        entity: "Complaint",
+        metadata: { count: rows.length, total, exportType: "full-entity" }
+      });
+    }
+
+    return ok(res, paginate(rows, total, effectiveQuery));
   })
 );
 
@@ -192,13 +214,7 @@ complaintRouter.post(
       createdBy: context.actor.id,
       createdByName: context.actor.name
     });
-    await writeAudit({
-      actor: req.user,
-      action: "CREATE",
-      entity: "ComplaintNote",
-      entityId: String(note._id),
-      after: { kind: note.kind }
-    });
+    await writeAudit({ actor: req.user, action: "CREATE", entity: "ComplaintNote", entityId: String(note._id), after: { kind: note.kind } });
     return ok(res, { note }, 201);
   })
 );
@@ -211,9 +227,7 @@ complaintRouter.delete(
     const note = await ComplaintNote.findOne({ _id: req.params.noteId, complaint: context.doc._id });
     if (!note) throw httpError(404, "Note not found");
     const isAuthor = String(note.createdBy) === context.actor.id;
-    if (!isAuthor && !canEditComplaint(context.actor, context.domain)) {
-      throw httpError(403, "You can only delete your own notes");
-    }
+    if (!isAuthor && !canEditComplaint(context.actor, context.domain)) throw httpError(403, "You can only delete your own notes");
     await ComplaintNote.deleteOne({ _id: note._id });
     await writeAudit({ actor: req.user, action: "DELETE", entity: "ComplaintNote", entityId: String(note._id) });
     return ok(res, { deleted: true });
