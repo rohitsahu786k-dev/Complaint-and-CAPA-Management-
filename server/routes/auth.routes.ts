@@ -3,6 +3,7 @@ import { changePasswordSchema, forgotPasswordSchema, loginSchema, resetPasswordS
 import { getEnv, isProduction } from "../config/env";
 import { connectDB } from "../config/db";
 import { SESSION_COOKIE, requireUser } from "../middleware/auth";
+import { createRateLimit } from "../middleware/rate-limit";
 import { User } from "../models/User";
 import {
   authenticate,
@@ -21,6 +22,25 @@ import { httpError, ok } from "../utils/http";
 
 export const authRouter = Router();
 
+const loginRateLimit = createRateLimit({
+  keyPrefix: "auth:login",
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: "Too many sign-in attempts from this network. Please try again later."
+});
+const forgotRateLimit = createRateLimit({
+  keyPrefix: "auth:forgot",
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: "Too many password reset requests. Please try again later."
+});
+const resetRateLimit = createRateLimit({
+  keyPrefix: "auth:reset",
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: "Too many password reset attempts. Please try again later."
+});
+
 function cookieOptions() {
   return {
     httpOnly: true,
@@ -33,6 +53,7 @@ function cookieOptions() {
 
 authRouter.post(
   "/login",
+  loginRateLimit,
   asyncHandler(async (req, res) => {
     const input = loginSchema.parse(req.body);
     await connectDB();
@@ -58,6 +79,7 @@ authRouter.get("/me", requireUser, (req, res) => ok(res, { user: req.user }));
 
 authRouter.post(
   "/forgot-password",
+  forgotRateLimit,
   asyncHandler(async (req, res) => {
     const input = forgotPasswordSchema.parse(req.body);
     await connectDB();
@@ -85,6 +107,7 @@ authRouter.post(
 
 authRouter.post(
   "/reset-password",
+  resetRateLimit,
   asyncHandler(async (req, res) => {
     const input = resetPasswordSchema.parse(req.body);
     await connectDB();
@@ -116,6 +139,7 @@ authRouter.post(
     const user = await User.findById(req.user?.id).select("+passwordHash");
     if (!user) throw httpError(404, "User not found");
     if (!(await verifyPassword(input.currentPassword, user.passwordHash))) throw httpError(400, "Current password is incorrect");
+    if (await verifyPassword(input.newPassword, user.passwordHash)) throw httpError(400, "New password must be different from the current password");
     user.passwordHash = await hashPassword(input.newPassword);
     user.passwordChangedAt = new Date();
     user.forcePasswordChange = false;
@@ -137,4 +161,3 @@ authRouter.post(
     return ok(res, { changed: true });
   })
 );
-
