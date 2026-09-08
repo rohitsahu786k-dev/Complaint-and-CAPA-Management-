@@ -65,7 +65,7 @@ export const userCreateSchema = z.object({
 });
 
 /** Administrative profile edits never accept a password. Use the reset-access workflow instead. */
-export const userUpdateSchema = userCreateSchema.partial().omit({ password: true });
+export const userUpdateSchema = userCreateSchema.partial().omit({ password: true }).strict();
 
 export type CompanyInput = z.infer<typeof companyCreateSchema>;
 export type DepartmentInput = z.infer<typeof departmentCreateSchema>;
