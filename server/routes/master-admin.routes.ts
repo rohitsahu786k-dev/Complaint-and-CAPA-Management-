@@ -11,12 +11,12 @@ import { Employee } from "../models/Employee";
 import { Role } from "../models/Role";
 import { User } from "../models/User";
 import { writeAudit } from "../services/audit.service";
-import { sendMail } from "../services/email.service";
+import { sendTemplatedEmail } from "../services/email.service";
 import { asyncHandler } from "../utils/async-handler";
 import { randomToken, sha256 } from "../utils/crypto";
 import { httpError, ok } from "../utils/http";
 
-/** Administration endpoints that back the Phase 3 master data screens. */
+/** Administration endpoints that back the master data screens. */
 export const masterAdminRouter = Router();
 
 masterAdminRouter.use(requireUser);
@@ -66,7 +66,6 @@ masterAdminRouter.patch(
   })
 );
 
-/** Bulk employee upsert behind the master data Excel import. */
 masterAdminRouter.post(
   "/employees/bulk",
   requirePermission("*"),
@@ -142,8 +141,8 @@ masterAdminRouter.patch(
 );
 
 /**
- * Resets a user's access without the administrator ever seeing or choosing a password.
- * A hashed, one hour reset token is issued and emailed to the account holder.
+ * Resets a user's access without the administrator ever seeing or choosing their existing password.
+ * A hashed, one-hour reset token is issued and delivered through the central templated email service.
  */
 masterAdminRouter.post(
   "/users/:id/reset-access",
@@ -162,19 +161,21 @@ masterAdminRouter.post(
     await user.save();
 
     let emailed = false;
+    let emailStatus: "sent" | "failed" | "skipped" = "skipped";
     if (user.email) {
       const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
       const resetUrl = new URL(`/reset-password?token=${token}`, baseUrl).toString();
-      const result = await sendMail({
-        to: [user.email],
-        subject: "Your ONEPWS Complaint and CAPA Portal access has been reset",
-        html: `<p>Hello ${user.name},</p><p>An administrator reset your portal access. Use the secure link below within one hour to set a new password.</p><p><a href="${resetUrl}">Set a new password</a></p>`,
-        text: `Hello ${user.name},\n\nSet a new password: ${resetUrl}\n\nThis link expires in one hour.`
+      const result = await sendTemplatedEmail({
+        triggerEvent: "PASSWORD_RESET_REQUESTED",
+        recipients: [user.email],
+        data: { recipientName: user.name, resetUrl, expiresInHours: "1" },
+        sentBySystem: false
       });
+      emailStatus = result.status;
       emailed = result.status === "sent";
     }
 
-    await writeAudit({ actor: req.user, action: "UPDATE", entity: "User", entityId: req.params.id, after: { accessReset: true, emailed } });
-    return ok(res, { reset: true, emailed, hasEmail: Boolean(user.email) });
+    await writeAudit({ actor: req.user, action: "UPDATE", entity: "User", entityId: req.params.id, after: { accessReset: true, emailStatus } });
+    return ok(res, { reset: true, emailed, emailStatus, hasEmail: Boolean(user.email) });
   })
 );
