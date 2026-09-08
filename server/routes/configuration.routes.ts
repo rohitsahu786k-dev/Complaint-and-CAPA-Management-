@@ -14,7 +14,7 @@ import { connectDB } from "../config/db";
 import { requirePermission, requireUser } from "../middleware/auth";
 import { EscalationConfiguration, NumberingConfiguration, TATConfiguration } from "../models/configuration";
 import { Category, DelayReason, Priority, RootCauseCategory } from "../models/masters";
-import { activeDelayReasons, resolveEscalation, resolveTatConfig } from "../services/config.service";
+import { resolveEscalation, resolveTatConfig } from "../services/config.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
@@ -29,10 +29,10 @@ configurationRouter.get(
   asyncHandler(async (req, res) => {
     await connectDB();
     const company = typeof req.query.company === "string" && req.query.company ? req.query.company : null;
-    const [tat, escalation, delayReasons, categories, priorities, rootCauseCategories, numbering] = await Promise.all([
+    const [tat, escalation, delayReasonItems, categories, priorities, rootCauseCategories, numbering] = await Promise.all([
       resolveTatConfig(company),
       resolveEscalation(company),
-      activeDelayReasons(),
+      DelayReason.find({ active: true }).sort({ order: 1, name: 1 }).lean(),
       Category.find({ active: true }).sort({ complaintType: 1, order: 1, name: 1 }).lean(),
       Priority.find({ active: true }).sort({ order: 1 }).lean(),
       RootCauseCategory.find({ active: true }).sort({ order: 1, name: 1 }).lean(),
@@ -43,7 +43,8 @@ configurationRouter.get(
       tat,
       escalation,
       numbering,
-      delayReasons,
+      delayReasons: delayReasonItems.map((item) => item.name),
+      delayReasonItems,
       categories,
       priorities,
       rootCauseCategories,
@@ -63,14 +64,7 @@ configurationRouter.put(
     const company = input.company ?? null;
     const before = await TATConfiguration.findOne({ company }).lean();
     const config = await TATConfiguration.findOneAndUpdate({ company }, { ...input, company }, { new: true, upsert: true });
-    await writeAudit({
-      actor: req.user,
-      action: "MASTER_DATA_CHANGE",
-      entity: "TATConfiguration",
-      entityId: String(config._id),
-      before,
-      after: input
-    });
+    await writeAudit({ actor: req.user, action: "MASTER_DATA_CHANGE", entity: "TATConfiguration", entityId: String(config._id), before, after: input });
     return ok(res, { config });
   })
 );
@@ -84,14 +78,7 @@ configurationRouter.put(
     const company = input.company ?? null;
     const before = await EscalationConfiguration.findOne({ company }).lean();
     const config = await EscalationConfiguration.findOneAndUpdate({ company }, { ...input, company }, { new: true, upsert: true });
-    await writeAudit({
-      actor: req.user,
-      action: "MASTER_DATA_CHANGE",
-      entity: "EscalationConfiguration",
-      entityId: String(config._id),
-      before,
-      after: input
-    });
+    await writeAudit({ actor: req.user, action: "MASTER_DATA_CHANGE", entity: "EscalationConfiguration", entityId: String(config._id), before, after: input });
     return ok(res, { config });
   })
 );
@@ -104,14 +91,7 @@ configurationRouter.put(
     await connectDB();
     const before = await NumberingConfiguration.findOne({ company: input.company }).lean();
     const config = await NumberingConfiguration.findOneAndUpdate({ company: input.company }, input, { new: true, upsert: true });
-    await writeAudit({
-      actor: req.user,
-      action: "MASTER_DATA_CHANGE",
-      entity: "NumberingConfiguration",
-      entityId: String(config._id),
-      before,
-      after: input
-    });
+    await writeAudit({ actor: req.user, action: "MASTER_DATA_CHANGE", entity: "NumberingConfiguration", entityId: String(config._id), before, after: input });
     return ok(res, { config });
   })
 );
