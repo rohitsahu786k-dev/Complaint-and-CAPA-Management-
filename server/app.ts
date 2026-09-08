@@ -26,21 +26,36 @@ export function createApp() {
   const env = getEnv();
 
   app.set("trust proxy", 1);
+  app.disable("x-powered-by");
   app.use(helmet({ contentSecurityPolicy: false }));
+
+  const allowedOrigins = new Set<string>();
+  if (env.APP_BASE_URL) allowedOrigins.add(env.APP_BASE_URL.replace(/\/$/, ""));
+  if (process.env.VERCEL_URL) allowedOrigins.add(`https://${process.env.VERCEL_URL}`.replace(/\/$/, ""));
+
   app.use(
     cors({
-      origin: env.APP_BASE_URL || true,
-      credentials: true
+      origin(origin, callback) {
+        if (!origin) return callback(null, true);
+        const normalized = origin.replace(/\/$/, "");
+        if (env.NODE_ENV !== "production" || allowedOrigins.has(normalized)) return callback(null, true);
+        return callback(new Error("Origin not allowed by CORS policy"));
+      },
+      credentials: true,
+      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Cron-Secret"]
     })
   );
+
   // Imports and legacy migrations carry large JSON payloads; every other route stays small.
   app.use("/api/import", express.json({ limit: "25mb" }));
   app.use(express.json({ limit: "1mb" }));
   app.use(cookieParser(env.COOKIE_SECRET));
 
-  // Correlation id, so an audit entry can be tied back to a single request.
-  app.use((req, _res, next) => {
+  app.use((req, res, next) => {
     req.requestId = randomUUID();
+    res.setHeader("X-Request-Id", req.requestId);
+    if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
     next();
   });
 

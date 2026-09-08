@@ -9,7 +9,6 @@ import type { ActionRow } from "@/services/queries";
 
 export const ACTION_STATUSES = ["Open", "In Progress", "Completed", "Verified"];
 
-/** Reusable D3 / D5 / D6 action table with responsibility, target date and status. */
 export function ActionRowsEditor({
   rows,
   onChange,
@@ -29,6 +28,8 @@ export function ActionRowsEditor({
     onChange(rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
   }
 
+  const targetIsComputed = Boolean(defaultTarget);
+
   return (
     <div className="space-y-2">
       {rows.length === 0 ? <p className="text-xs text-slate-500">No rows yet.</p> : null}
@@ -46,8 +47,14 @@ export function ActionRowsEditor({
               </Field>
             </div>
             <div className="lg:col-span-2">
-              <Field label="Target date">
-                <Input type="date" value={row.target ?? ""} disabled={readOnly} onChange={(event) => update(index, { target: event.target.value })} />
+              <Field label={targetIsComputed ? "Target date (system)" : "Target date"}>
+                <Input
+                  type="date"
+                  value={targetIsComputed ? defaultTarget : row.target ?? ""}
+                  disabled={readOnly || targetIsComputed}
+                  readOnly={targetIsComputed}
+                  onChange={(event) => update(index, { target: event.target.value })}
+                />
               </Field>
             </div>
             <div className="lg:col-span-2">
@@ -109,7 +116,6 @@ export function ActionRowsEditor({
   );
 }
 
-/** Repeated-row 5-Why entry. Each answer becomes the question for the next step. */
 export function WhyChainEditor({
   title,
   description,
@@ -173,7 +179,6 @@ export function WhyChainEditor({
   );
 }
 
-/** Structured fishbone panels. Clearer to fill in than a decorative diagram. */
 export function FishbonePanels({
   categories,
   values,
@@ -219,12 +224,7 @@ export function FishbonePanels({
               {entries.length === 0 ? <p className="text-xs text-slate-500">No causes recorded.</p> : null}
             </div>
             {!readOnly ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className="mt-2 h-9 px-2"
-                onClick={() => onChange({ ...values, [category]: [...entries, ""] })}
-              >
+              <Button type="button" variant="ghost" className="mt-2 h-9 px-2" onClick={() => onChange({ ...values, [category]: [...entries, ""] })}>
                 <Plus className="h-4 w-4" />
                 Add cause
               </Button>
@@ -238,13 +238,16 @@ export function FishbonePanels({
 
 export type UploadTarget = { entityType: "Complaint" | "Capa" | "Company"; entityId: string; purpose: string; company?: string };
 
-type SignatureResponse = { timestamp: number; folder: string; signature: string; apiKey: string; cloudName: string; maxBytes: number };
+type SignatureResponse = {
+  timestamp: number;
+  folder: string;
+  signature: string;
+  apiKey: string;
+  cloudName: string;
+  maxBytes: number;
+  allowedMimeTypes: string[];
+};
 
-/**
- * Signed direct upload. The file goes straight from the browser to Cloudinary and
- * only the resulting public id is confirmed with the API, so no secret is exposed
- * and no binary passes through the server.
- */
 export function useCloudinaryUpload(target: UploadTarget) {
   const [uploading, setUploading] = useState(false);
 
@@ -254,10 +257,17 @@ export function useCloudinaryUpload(target: UploadTarget) {
       try {
         const signature = await api<SignatureResponse>("/api/attachments/signature", {
           method: "POST",
-          body: JSON.stringify({ purpose: target.purpose })
+          body: JSON.stringify({
+            entityType: target.entityType,
+            entityId: target.entityId,
+            purpose: target.purpose
+          })
         });
         if (file.size > signature.maxBytes) {
           throw new Error(`${file.name} is larger than the ${Math.round(signature.maxBytes / (1024 * 1024))} MB limit`);
+        }
+        if (file.type && !signature.allowedMimeTypes.includes(file.type)) {
+          throw new Error(`${file.name} is not an allowed file type`);
         }
 
         const body = new FormData();
@@ -280,15 +290,14 @@ export function useCloudinaryUpload(target: UploadTarget) {
             mimeType: file.type || "application/octet-stream",
             entityType: target.entityType,
             entityId: target.entityId,
-            purpose: target.purpose,
-            company: target.company
+            purpose: target.purpose
           })
         });
       } finally {
         setUploading(false);
       }
     },
-    [target.company, target.entityId, target.entityType, target.purpose]
+    [target.entityId, target.entityType, target.purpose]
   );
 
   return { upload, uploading };
@@ -328,7 +337,6 @@ export function UploadButton({
   );
 }
 
-/** Blocking requirements returned by a 422, grouped by section. */
 export function BlockedReasons({ title, issues }: { title: string; issues: { field: string; message: string; section?: string }[] }) {
   if (issues.length === 0) return null;
   const grouped = issues.reduce<Record<string, string[]>>((accumulator, issue) => {

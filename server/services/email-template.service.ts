@@ -2,18 +2,10 @@ import { Types } from "mongoose";
 import { connectDB } from "../config/db";
 import { EmailTemplate } from "../models/EmailTemplate";
 import { DEFAULT_EMAIL_TEMPLATES } from "../lib/email-template-defaults";
-import {
-  getSampleVariables,
-  renderTemplate,
-  variablesInTemplate
-} from "../lib/email-template-renderer";
+import { getSampleVariables, renderTemplate, variablesInTemplate } from "../lib/email-template-renderer";
 import type { EmailTemplateInput, EmailTemplateUpdateInput } from "@shared/schemas/email";
 import { httpError } from "../utils/http";
 
-/**
- * Seeds missing default templates into MongoDB.
- * Does NOT overwrite existing templates modified by administrators.
- */
 export async function seedDefaultTemplates(): Promise<number> {
   await connectDB();
   let seededCount = 0;
@@ -26,29 +18,19 @@ export async function seedDefaultTemplates(): Promise<number> {
           ? defaultTmpl.supportedVariables
           : variablesInTemplate(defaultTmpl.subject, defaultTmpl.htmlBody, defaultTmpl.textBody);
 
-      await EmailTemplate.create({
-        ...defaultTmpl,
-        supportedVariables: vars,
-        isActive: true
-      });
+      await EmailTemplate.create({ ...defaultTmpl, supportedVariables: vars, isActive: true });
       seededCount++;
     }
   }
-
   return seededCount;
 }
 
 export async function listEmailTemplates(filter?: { triggerEvent?: string; activeOnly?: boolean; search?: string }) {
   await connectDB();
   await seedDefaultTemplates();
-
   const query: Record<string, unknown> = {};
-  if (filter?.triggerEvent) {
-    query.triggerEvent = filter.triggerEvent;
-  }
-  if (filter?.activeOnly) {
-    query.isActive = true;
-  }
+  if (filter?.triggerEvent) query.triggerEvent = filter.triggerEvent;
+  if (filter?.activeOnly) query.isActive = true;
   if (filter?.search && filter.search.trim().length > 0) {
     const s = filter.search.trim();
     query.$or = [
@@ -57,11 +39,7 @@ export async function listEmailTemplates(filter?: { triggerEvent?: string; activ
       { subject: { $regex: s, $options: "i" } }
     ];
   }
-
-  return EmailTemplate.find(query)
-    .sort({ triggerEvent: 1, templateName: 1 })
-    .populate("updatedBy", "name username")
-    .lean();
+  return EmailTemplate.find(query).sort({ triggerEvent: 1, templateName: 1 }).populate("updatedBy", "name username").lean();
 }
 
 export async function getEmailTemplateById(id: string) {
@@ -72,49 +50,59 @@ export async function getEmailTemplateById(id: string) {
   return template;
 }
 
-export async function getActiveTemplateByTrigger(triggerEvent: string): Promise<{
+export type ActiveEmailTemplate = {
   templateKey: string;
   templateName: string;
   subject: string;
   htmlBody: string;
   textBody: string;
   supportedVariables: string[];
-} | null> {
+  allowedRolesToReceive: string[];
+  ccRules: string[];
+  bccRules: string[];
+};
+
+export async function getActiveTemplateByTrigger(triggerEvent: string): Promise<ActiveEmailTemplate | null> {
   await connectDB();
   const doc = await EmailTemplate.findOne({ triggerEvent, isActive: true }).lean();
-  if (doc) return doc;
+  if (doc) {
+    return {
+      templateKey: doc.templateKey,
+      templateName: doc.templateName,
+      subject: doc.subject,
+      htmlBody: doc.htmlBody,
+      textBody: doc.textBody,
+      supportedVariables: doc.supportedVariables ?? [],
+      allowedRolesToReceive: doc.allowedRolesToReceive ?? [],
+      ccRules: doc.ccRules ?? [],
+      bccRules: doc.bccRules ?? []
+    };
+  }
 
-  // Fallback to in-memory default if DB has no active template
-  const fallback = DEFAULT_EMAIL_TEMPLATES.find((t) => t.triggerEvent === triggerEvent);
-  return fallback || null;
+  const fallback = DEFAULT_EMAIL_TEMPLATES.find((template) => template.triggerEvent === triggerEvent);
+  return fallback
+    ? {
+        ...fallback,
+        supportedVariables: fallback.supportedVariables ?? variablesInTemplate(fallback.subject, fallback.htmlBody, fallback.textBody),
+        allowedRolesToReceive: [],
+        ccRules: [],
+        bccRules: []
+      }
+    : null;
 }
 
 export async function createEmailTemplate(input: EmailTemplateInput, userId?: string) {
   await connectDB();
   const key = input.templateKey.toLowerCase().trim();
   const existing = await EmailTemplate.findOne({ templateKey: key });
-  if (existing) {
-    throw httpError(400, `Template key '${key}' is already in use`);
-  }
-
-  const vars =
-    input.supportedVariables.length > 0
-      ? input.supportedVariables
-      : variablesInTemplate(input.subject, input.htmlBody, input.textBody);
-
-  return EmailTemplate.create({
-    ...input,
-    templateKey: key,
-    supportedVariables: vars,
-    createdBy: userId,
-    updatedBy: userId
-  });
+  if (existing) throw httpError(400, `Template key '${key}' is already in use`);
+  const vars = input.supportedVariables.length > 0 ? input.supportedVariables : variablesInTemplate(input.subject, input.htmlBody, input.textBody);
+  return EmailTemplate.create({ ...input, templateKey: key, supportedVariables: vars, createdBy: userId, updatedBy: userId });
 }
 
 export async function updateEmailTemplate(id: string, input: EmailTemplateUpdateInput, userId?: string) {
   if (!Types.ObjectId.isValid(id)) throw httpError(400, "Invalid template ID");
   await connectDB();
-
   const existing = await EmailTemplate.findById(id);
   if (!existing) throw httpError(404, "Email template not found");
 
@@ -130,7 +118,6 @@ export async function updateEmailTemplate(id: string, input: EmailTemplateUpdate
 
   existing.supportedVariables = variablesInTemplate(existing.subject, existing.htmlBody, existing.textBody);
   if (userId) existing.updatedBy = new Types.ObjectId(userId);
-
   await existing.save();
   return existing.toObject();
 }
@@ -162,7 +149,7 @@ export async function previewEmailTemplate(
         subject = subject || doc.subject;
         triggerEvent = doc.triggerEvent;
       } else {
-        const fallback = DEFAULT_EMAIL_TEMPLATES.find((t) => t.triggerEvent === templateIdOrTrigger);
+        const fallback = DEFAULT_EMAIL_TEMPLATES.find((template) => template.triggerEvent === templateIdOrTrigger);
         if (fallback) {
           html = html || fallback.htmlBody;
           text = text || fallback.textBody;
@@ -173,11 +160,7 @@ export async function previewEmailTemplate(
     }
   }
 
-  const sample = {
-    ...getSampleVariables(triggerEvent),
-    ...(overrides?.sampleData || {})
-  };
-
+  const sample = { ...getSampleVariables(triggerEvent), ...(overrides?.sampleData || {}) };
   const renderedSubject = renderTemplate(subject || "", sample);
   const renderedHtml = renderTemplate(html || "", sample);
   const renderedText = renderTemplate(text || "", sample);
@@ -186,13 +169,7 @@ export async function previewEmailTemplate(
     subject: renderedSubject.rendered,
     html: renderedHtml.rendered,
     text: renderedText.rendered,
-    missingVariables: [
-      ...new Set([
-        ...renderedSubject.missingVariables,
-        ...renderedHtml.missingVariables,
-        ...renderedText.missingVariables
-      ])
-    ],
+    missingVariables: [...new Set([...renderedSubject.missingVariables, ...renderedHtml.missingVariables, ...renderedText.missingVariables])],
     sampleDataUsed: sample
   };
 }

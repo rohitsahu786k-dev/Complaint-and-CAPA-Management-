@@ -3,6 +3,7 @@ import { changePasswordSchema, forgotPasswordSchema, loginSchema, resetPasswordS
 import { getEnv, isProduction } from "../config/env";
 import { connectDB } from "../config/db";
 import { SESSION_COOKIE, requireUser } from "../middleware/auth";
+import { rateLimit } from "../middleware/rate-limit";
 import { User } from "../models/User";
 import {
   authenticate,
@@ -21,6 +22,10 @@ import { httpError, ok } from "../utils/http";
 
 export const authRouter = Router();
 
+const loginLimiter = rateLimit({ namespace: "auth-login", windowMs: 15 * 60 * 1000, max: 20 });
+const forgotLimiter = rateLimit({ namespace: "auth-forgot", windowMs: 15 * 60 * 1000, max: 8 });
+const resetLimiter = rateLimit({ namespace: "auth-reset", windowMs: 15 * 60 * 1000, max: 12 });
+
 function cookieOptions() {
   return {
     httpOnly: true,
@@ -33,6 +38,7 @@ function cookieOptions() {
 
 authRouter.post(
   "/login",
+  loginLimiter,
   asyncHandler(async (req, res) => {
     const input = loginSchema.parse(req.body);
     await connectDB();
@@ -58,6 +64,7 @@ authRouter.get("/me", requireUser, (req, res) => ok(res, { user: req.user }));
 
 authRouter.post(
   "/forgot-password",
+  forgotLimiter,
   asyncHandler(async (req, res) => {
     const input = forgotPasswordSchema.parse(req.body);
     await connectDB();
@@ -85,6 +92,7 @@ authRouter.post(
 
 authRouter.post(
   "/reset-password",
+  resetLimiter,
   asyncHandler(async (req, res) => {
     const input = resetPasswordSchema.parse(req.body);
     await connectDB();
@@ -103,6 +111,7 @@ authRouter.post(
       });
     }
 
+    res.clearCookie(SESSION_COOKIE, { path: "/" });
     return ok(res, { reset: true });
   })
 );
@@ -110,6 +119,7 @@ authRouter.post(
 authRouter.post(
   "/change-password",
   requireUser,
+  resetLimiter,
   asyncHandler(async (req, res) => {
     const input = changePasswordSchema.parse(req.body);
     await connectDB();
@@ -134,7 +144,8 @@ authRouter.post(
       });
     }
 
+    // Keep the user signed in with a fresh token while invalidating every older session.
+    res.cookie(SESSION_COOKIE, signSession(String(user._id)), cookieOptions());
     return ok(res, { changed: true });
   })
 );
-

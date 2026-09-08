@@ -10,7 +10,7 @@ import { randomToken, sha256 } from "../utils/crypto";
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
-type JwtPayload = { sub: string; typ: "session" };
+type JwtPayload = { sub: string; typ: "session"; iat?: number; exp?: number };
 
 export async function hashPassword(password: string) {
   return bcrypt.hash(password, 12);
@@ -21,13 +21,15 @@ export async function verifyPassword(password: string, passwordHash: string) {
 }
 
 export function signSession(userId: string) {
-  return jwt.sign({ sub: userId, typ: "session" } satisfies JwtPayload, getEnv().JWT_SECRET, {
+  return jwt.sign({ sub: userId, typ: "session" } satisfies Omit<JwtPayload, "iat" | "exp">, getEnv().JWT_SECRET, {
     expiresIn: SESSION_TTL_SECONDS
   });
 }
 
 export function verifySession(token: string) {
-  return jwt.verify(token, getEnv().JWT_SECRET) as JwtPayload;
+  const payload = jwt.verify(token, getEnv().JWT_SECRET) as JwtPayload;
+  if (payload.typ !== "session" || !payload.sub) throw new Error("Invalid session token");
+  return payload;
 }
 
 export function sessionMaxAgeMs() {

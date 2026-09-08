@@ -13,7 +13,7 @@ export type RecipientResolutionOptions = {
   departmentId?: string | Types.ObjectId;
   ownerId?: string | Types.ObjectId;
   coordinatorId?: string | Types.ObjectId;
-  targetRoles?: string[]; // e.g. ["Complaint Owner", "Coordinator", "Department Head", "Quality Head", "Management", "CAPA Owner"]
+  targetRoles?: string[];
   explicitEmails?: string[];
   excludeEmails?: string[];
 };
@@ -26,155 +26,74 @@ function normalizeEmail(email: unknown): string | null {
   return EMAIL_REGEX.test(trimmed) ? trimmed : null;
 }
 
+async function addUserEmail(recipientSet: Set<string>, userId: string | Types.ObjectId | undefined | null) {
+  if (!userId) return;
+  const user = await User.findOne({ _id: userId, active: true }).select("email").lean();
+  const email = normalizeEmail(user?.email);
+  if (email) recipientSet.add(email);
+}
+
 export async function resolveRecipients(options: RecipientResolutionOptions): Promise<string[]> {
   await connectDB();
   const recipientSet = new Set<string>();
-
-  // 1. Add explicitly provided emails
-  if (options.explicitEmails) {
-    for (const raw of options.explicitEmails) {
-      const email = normalizeEmail(raw);
-      if (email) recipientSet.add(email);
-    }
-  }
-
-  // Hydrate complaint if provided
-  let complaintDoc = null;
-  if (options.complaintId && Types.ObjectId.isValid(options.complaintId)) {
-    complaintDoc = await Complaint.findById(options.complaintId).lean();
-  }
-
-  // Hydrate CAPA if provided
-  let capaDoc = null;
-  if (options.capaId && Types.ObjectId.isValid(options.capaId)) {
-    capaDoc = await Capa.findById(options.capaId).lean();
-  }
-
-  const effectiveCompanyId =
-    options.companyId || complaintDoc?.company || capaDoc?.company;
-
-  const effectiveDepartmentId =
-    options.departmentId || complaintDoc?.responsibleDept || capaDoc?.department;
-
-  const effectiveOwnerId =
-    options.ownerId || complaintDoc?.owner || capaDoc?.owner;
-
-  const effectiveCoordinatorId =
-    options.coordinatorId || (complaintDoc as { coordinator?: Types.ObjectId })?.coordinator;
-
-
-  const roles = options.targetRoles || [];
-
-  // 2. Resolve Complaint Owner
-  if (roles.includes("Complaint Owner") && effectiveOwnerId) {
-    const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
-    const email = normalizeEmail(ownerUser?.email);
+  for (const raw of options.explicitEmails ?? []) {
+    const email = normalizeEmail(raw);
     if (email) recipientSet.add(email);
   }
 
-  // 3. Resolve Complaint Coordinator
-  if (roles.includes("Coordinator") && effectiveCoordinatorId) {
-    const coordUser = await User.findOne({ _id: effectiveCoordinatorId, active: true }).lean();
-    const email = normalizeEmail(coordUser?.email);
-    if (email) recipientSet.add(email);
-  }
+  const complaintDoc = options.complaintId && Types.ObjectId.isValid(String(options.complaintId))
+    ? await Complaint.findById(options.complaintId).lean()
+    : null;
+  const capaDoc = options.capaId && Types.ObjectId.isValid(String(options.capaId)) ? await Capa.findById(options.capaId).lean() : null;
 
-  // 4. Resolve CAPA Owner
-  if (roles.includes("CAPA Owner") && capaDoc?.owner) {
-    const capaOwner = await User.findOne({ _id: capaDoc.owner, active: true }).lean();
-    const email = normalizeEmail(capaOwner?.email);
-    if (email) recipientSet.add(email);
-  }
+  const effectiveCompanyId = options.companyId || complaintDoc?.company || capaDoc?.company;
+  const effectiveDepartmentId = options.departmentId || complaintDoc?.responsibleDept || capaDoc?.department;
+  const effectiveOwnerId = options.ownerId || complaintDoc?.owner;
+  const effectiveCoordinatorId = options.coordinatorId || (complaintDoc as { coordinator?: Types.ObjectId } | null)?.coordinator;
+  const roles = [...new Set(options.targetRoles ?? [])];
 
-  // 5. Resolve Department Head & Manager via Employee records
+  if (roles.includes("Complaint Owner")) await addUserEmail(recipientSet, effectiveOwnerId);
+  if (roles.includes("CAPA Owner")) await addUserEmail(recipientSet, capaDoc?.owner);
+  if (roles.includes("Coordinator") && effectiveCoordinatorId) await addUserEmail(recipientSet, effectiveCoordinatorId);
+
   if ((roles.includes("Department Head") || roles.includes("Manager")) && effectiveDepartmentId) {
-    const query: Record<string, unknown> = {
-      department: effectiveDepartmentId,
-      active: true
-    };
-    if (effectiveCompanyId) {
-      query.company = effectiveCompanyId;
-    }
-    const employees = await Employee.find(query).lean();
-    for (const emp of employees) {
-      const hod = normalizeEmail(emp.hodEmail);
-      if (hod && roles.includes("Department Head")) recipientSet.add(hod);
-      const mgr = normalizeEmail(emp.managerEmail);
-      if (mgr && (roles.includes("Manager") || roles.includes("Department Head"))) recipientSet.add(mgr);
+    const employeeQuery: Record<string, unknown> = { department: effectiveDepartmentId, active: true };
+    if (effectiveCompanyId) employeeQuery.company = effectiveCompanyId;
+    const employees = await Employee.find(employeeQuery).select("hodEmail managerEmail").lean();
+    for (const employee of employees) {
+      if (roles.includes("Department Head")) {
+        const hod = normalizeEmail(employee.hodEmail);
+        if (hod) recipientSet.add(hod);
+      }
+      const manager = normalizeEmail(employee.managerEmail);
+      if (manager && (roles.includes("Manager") || roles.includes("Department Head"))) recipientSet.add(manager);
     }
   }
 
-  // 6. Resolve Quality Head
-  if (roles.includes("Quality Head")) {
-    const qualityRoles = await Role.find({
-      $or: [
-        { name: /quality/i },
-        { permissions: "complaint.approve" },
-        { permissions: "capa.review_evidence" }
-      ],
-      active: true
-    }).select("_id").lean();
+  const roleAliases = roles
+    .filter((role) => !["Complaint Owner", "CAPA Owner", "Manager"].includes(role))
+    .map((role) => (role === "Coordinator" ? "Complaint Coordinator" : role));
 
-    const roleIds = qualityRoles.map((r) => r._id);
-    if (roleIds.length > 0) {
-      const userQuery: Record<string, unknown> = {
-        role: { $in: roleIds },
-        active: true
-      };
-      if (effectiveCompanyId) {
-        userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
+  if (roleAliases.length > 0) {
+    const roleDocs = await Role.find({ name: { $in: roleAliases }, active: true }).select("_id name").lean();
+    if (roleDocs.length > 0) {
+      const userQuery: Record<string, unknown> = { role: { $in: roleDocs.map((role) => role._id) }, active: true };
+      if (effectiveCompanyId) userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
+      if (effectiveDepartmentId && roles.includes("Department Head")) {
+        userQuery.$and = [{ $or: [{ department: effectiveDepartmentId }, { department: { $exists: false } }] }];
       }
-      const qualityUsers = await User.find(userQuery).select("email").lean();
-      for (const u of qualityUsers) {
-        const email = normalizeEmail(u.email);
+      const users = await User.find(userQuery).select("email").lean();
+      for (const user of users) {
+        const email = normalizeEmail(user.email);
         if (email) recipientSet.add(email);
       }
     }
   }
 
-  // 7. Resolve Management
-  if (roles.includes("Management")) {
-    const mgmtRoles = await Role.find({
-      name: { $in: ["Management", "Director", "Managing Director", "Plant Head"] },
-      active: true
-    }).select("_id").lean();
-
-    const roleIds = mgmtRoles.map((r) => r._id);
-    if (roleIds.length > 0) {
-      const userQuery: Record<string, unknown> = {
-        role: { $in: roleIds },
-        active: true
-      };
-      if (effectiveCompanyId) {
-        userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
-      }
-      const mgmtUsers = await User.find(userQuery).select("email").lean();
-      for (const u of mgmtUsers) {
-        const email = normalizeEmail(u.email);
-        if (email) recipientSet.add(email);
-      }
-    }
+  for (const raw of options.excludeEmails ?? []) {
+    const email = normalizeEmail(raw);
+    if (email) recipientSet.delete(email);
   }
 
-  // 8. Resolve Master Admin
-  if (roles.includes("Master Admin")) {
-    const adminRole = await Role.findOne({ name: "Master Admin" }).select("_id").lean();
-    if (adminRole) {
-      const admins = await User.find({ role: adminRole._id, active: true }).select("email").lean();
-      for (const admin of admins) {
-        const email = normalizeEmail(admin.email);
-        if (email) recipientSet.add(email);
-      }
-    }
-  }
-
-  // 9. Exclude requested addresses (e.g. actor themselves if self-notification is discouraged)
-  if (options.excludeEmails) {
-    for (const raw of options.excludeEmails) {
-      const email = normalizeEmail(raw);
-      if (email) recipientSet.delete(email);
-    }
-  }
-
-  return Array.from(recipientSet);
+  return [...recipientSet];
 }

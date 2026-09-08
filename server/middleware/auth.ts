@@ -13,7 +13,15 @@ export async function optionalUser(req: Request, _res: Response, next: NextFunct
     await connectDB();
     const payload = verifySession(token);
     const user = await User.findById(payload.sub).populate("role");
-    if (user?.active) req.user = sanitizeUser(user);
+    if (!user?.active) return next();
+
+    // Password reset/change invalidates all sessions created before the change.
+    // JWT iat is second precision, so allow a one-second boundary for the newly-issued session.
+    if (user.passwordChangedAt && payload.iat && user.passwordChangedAt.getTime() > payload.iat * 1000 + 1000) {
+      return next();
+    }
+
+    req.user = sanitizeUser(user);
     return next();
   } catch {
     return next();
