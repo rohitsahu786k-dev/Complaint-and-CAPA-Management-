@@ -5,14 +5,8 @@ import { capaCreateSchema, capaListQuerySchema, capaUpdateSchema, effectivenessS
 import { objectIdSchema } from "@shared/schemas/common";
 import { connectDB } from "../config/db";
 import { requireUser } from "../middleware/auth";
-import {
-  attachEvidence,
-  createCapa,
-  listCapas,
-  reviewEvidence,
-  verifyEffectiveness
-} from "../services/capa.service";
-import { deleteCapaCascade, updateCapaHardened } from "../services/capa-hardening.service";
+import { attachEvidence, listCapas, reviewEvidence, verifyEffectiveness } from "../services/capa.service";
+import { createCapaHardened, deleteCapaCascade, updateCapaHardened } from "../services/capa-hardening.service";
 import { asyncHandler } from "../utils/async-handler";
 import { ok } from "../utils/http";
 import { Types } from "mongoose";
@@ -36,7 +30,7 @@ capaRouter.post(
   asyncHandler(async (req, res) => {
     const input = capaCreateSchema.parse(req.body);
     await connectDB();
-    const capa = await createCapa(req.params.complaintId, input, req.user);
+    const capa = await createCapaHardened(req.params.complaintId, input, req.user);
     return ok(res, { capa }, 201);
   })
 );
