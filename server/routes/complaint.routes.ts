@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { paginate } from "@shared/schemas/common";
+import { objectIdSchema, paginate } from "@shared/schemas/common";
 import {
   closeComplaintSchema,
   complaintCreateSchema,
@@ -24,8 +24,6 @@ import {
   closeComplaint,
   completeStage,
   createComplaint,
-  deleteComplaint,
-  getComplaintDetail,
   listComplaints,
   loadComplaintContext,
   reopenComplaint,
@@ -35,6 +33,12 @@ import {
   revokeSignature,
   signComplaint
 } from "../services/complaint.service";
+import {
+  assignComplaintOwner,
+  deleteComplaintCascade,
+  getHardenedComplaintDetail,
+  saveEightDHardened
+} from "../services/complaint-hardening.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
@@ -68,7 +72,18 @@ complaintRouter.get(
   "/:id",
   asyncHandler(async (req, res) => {
     await connectDB();
-    return ok(res, await getComplaintDetail(req.params.id, req.user));
+    return ok(res, await getHardenedComplaintDetail(req.params.id, req.user));
+  })
+);
+
+complaintRouter.patch(
+  "/:id/owner",
+  requirePermission("complaint.assign"),
+  asyncHandler(async (req, res) => {
+    const input = z.object({ owner: objectIdSchema }).parse(req.body);
+    await connectDB();
+    const complaint = await assignComplaintOwner(req.params.id, input.owner, req.user);
+    return ok(res, { complaint });
   })
 );
 
@@ -87,9 +102,7 @@ complaintRouter.patch(
   asyncHandler(async (req, res) => {
     const input = eightDSchema.parse(req.body);
     await connectDB();
-    const context = await loadComplaintContext(req.params.id, req.user);
-    if (context.doc.type !== "External") throw httpError(400, "The 8D report only applies to external complaints");
-    const complaint = await saveInvestigation(req.params.id, input as Record<string, unknown>, req.user);
+    const complaint = await saveEightDHardened(req.params.id, input, req.user);
     return ok(res, { complaint });
   })
 );
@@ -222,6 +235,7 @@ complaintRouter.delete(
 
 complaintRouter.get(
   "/:id/audit",
+  requirePermission("audit.view"),
   asyncHandler(async (req, res) => {
     await connectDB();
     await loadComplaintContext(req.params.id, req.user);
@@ -236,6 +250,6 @@ complaintRouter.delete(
   asyncHandler(async (req, res) => {
     const input = z.object({ confirmation: z.string().trim().min(1) }).parse(req.body);
     await connectDB();
-    return ok(res, await deleteComplaint(req.params.id, input.confirmation, req.user));
+    return ok(res, await deleteComplaintCascade(req.params.id, input.confirmation, req.user));
   })
 );
