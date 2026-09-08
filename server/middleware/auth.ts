@@ -8,7 +8,7 @@ export const SESSION_COOKIE = "onepws_session";
 
 export async function optionalUser(req: Request, _res: Response, next: NextFunction) {
   try {
-    const token = req.cookies?.[SESSION_COOKIE] as string | undefined;
+    const token = req.signedCookies?.[SESSION_COOKIE] as string | undefined;
     if (!token) return next();
     await connectDB();
     const payload = verifySession(token);
