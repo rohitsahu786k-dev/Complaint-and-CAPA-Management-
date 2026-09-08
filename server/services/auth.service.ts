@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { Types } from "mongoose";
 import type { ApiRole, ApiUser } from "@shared/types/api";
 import { getEnv } from "../config/env";
+import "../models/Role";
 import { User, type UserDocument } from "../models/User";
 import { httpError } from "../utils/http";
 import { randomToken, sha256 } from "../utils/crypto";

@@ -100,6 +100,18 @@ var User = mongoose2.models.User || mongoose2.model("User", UserSchema);
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
+// server/models/Role.ts
+import mongoose3, { Schema as Schema2 } from "mongoose";
+var RoleSchema = new Schema2(
+  {
+    name: { type: String, required: true, unique: true, trim: true, index: true },
+    permissions: [{ type: String, required: true }],
+    active: { type: Boolean, default: true, index: true }
+  },
+  { timestamps: true }
+);
+var Role = mongoose3.models.Role || mongoose3.model("Role", RoleSchema);
+
 // server/utils/http.ts
 import { ZodError } from "zod";
 function ok(res, data, status = 200) {
@@ -572,47 +584,47 @@ function isStageOverdueNow(complaint, stage, config, now = /* @__PURE__ */ new D
 }
 
 // server/models/Capa.ts
-import mongoose3, { Schema as Schema2 } from "mongoose";
-var EvidenceFileSchema = new Schema2(
+import mongoose4, { Schema as Schema3 } from "mongoose";
+var EvidenceFileSchema = new Schema3(
   {
-    attachment: { type: Schema2.Types.ObjectId, ref: "Attachment", required: true },
+    attachment: { type: Schema3.Types.ObjectId, ref: "Attachment", required: true },
     description: { type: String, trim: true, default: "" },
-    uploadedBy: { type: Schema2.Types.ObjectId, ref: "User" },
+    uploadedBy: { type: Schema3.Types.ObjectId, ref: "User" },
     uploadedAt: { type: Date, default: Date.now }
   },
   { _id: false }
 );
-var EvidenceReviewSchema = new Schema2(
+var EvidenceReviewSchema = new Schema3(
   {
     status: { type: String, enum: EVIDENCE_REVIEW_STATUSES, default: "Pending" },
-    by: { type: Schema2.Types.ObjectId, ref: "User" },
+    by: { type: Schema3.Types.ObjectId, ref: "User" },
     byName: { type: String, trim: true },
     at: { type: Date, default: null },
     remarks: { type: String, trim: true, default: "" }
   },
   { _id: false }
 );
-var EvidenceReviewHistorySchema = new Schema2(
+var EvidenceReviewHistorySchema = new Schema3(
   {
     status: { type: String, enum: EVIDENCE_REVIEW_STATUSES, required: true },
-    by: { type: Schema2.Types.ObjectId, ref: "User" },
+    by: { type: Schema3.Types.ObjectId, ref: "User" },
     byName: { type: String, trim: true },
     at: { type: Date, default: Date.now },
     remarks: { type: String, trim: true, default: "" }
   },
   { _id: false }
 );
-var CapaSchema = new Schema2(
+var CapaSchema = new Schema3(
   {
     number: { type: String, required: true, unique: true, trim: true, index: true },
-    complaint: { type: Schema2.Types.ObjectId, ref: "Complaint", required: true, index: true },
-    company: { type: Schema2.Types.ObjectId, ref: "Company", required: true, index: true },
+    complaint: { type: Schema3.Types.ObjectId, ref: "Complaint", required: true, index: true },
+    company: { type: Schema3.Types.ObjectId, ref: "Company", required: true, index: true },
     sequence: { type: Number, required: true },
     type: { type: String, enum: CAPA_TYPES, default: "Corrective" },
     action: { type: String, required: true, trim: true },
-    owner: { type: Schema2.Types.ObjectId, ref: "User", index: true },
-    department: { type: Schema2.Types.ObjectId, ref: "Department", index: true },
-    priority: { type: Schema2.Types.ObjectId, ref: "Priority" },
+    owner: { type: Schema3.Types.ObjectId, ref: "User", index: true },
+    department: { type: Schema3.Types.ObjectId, ref: "Department", index: true },
+    priority: { type: Schema3.Types.ObjectId, ref: "Priority" },
     assignedAt: { type: Date, default: Date.now },
     dueDate: { type: Date, required: true, index: true },
     completedAt: { type: Date, default: null },
@@ -624,7 +636,7 @@ var CapaSchema = new Schema2(
     delayReason: { type: String, trim: true, default: "" },
     effectiveness: { type: String, enum: [...CAPA_EFFECTIVENESS, null], default: null, index: true },
     effectivenessVerifiedAt: { type: Date, default: null },
-    effectivenessVerifiedBy: { type: Schema2.Types.ObjectId, ref: "User" },
+    effectivenessVerifiedBy: { type: Schema3.Types.ObjectId, ref: "User" },
     effectivenessEvidence: { type: String, trim: true, default: "" },
     effectivenessEvidenceFiles: { type: [EvidenceFileSchema], default: [] },
     verificationMethod: { type: String, trim: true, default: "" },
@@ -635,23 +647,23 @@ var CapaSchema = new Schema2(
 CapaSchema.index({ company: 1, status: 1, dueDate: 1 });
 CapaSchema.index({ owner: 1, status: 1 });
 CapaSchema.index({ complaint: 1, sequence: 1 });
-var Capa = mongoose3.models.Capa || mongoose3.model("Capa", CapaSchema);
+var Capa = mongoose4.models.Capa || mongoose4.model("Capa", CapaSchema);
 
 // server/models/Complaint.ts
-import mongoose4, { Schema as Schema3 } from "mongoose";
-var DelayReasonSchema = new Schema3(
+import mongoose5, { Schema as Schema4 } from "mongoose";
+var DelayReasonSchema = new Schema4(
   {
     category: { type: String, required: true, trim: true },
     explanation: { type: String, required: true, trim: true },
     recovery: { type: String, trim: true },
     recordedAt: { type: Date, default: Date.now },
-    recordedBy: { type: Schema3.Types.ObjectId, ref: "User" }
+    recordedBy: { type: Schema4.Types.ObjectId, ref: "User" }
   },
   { _id: false }
 );
-var TeamMemberSchema = new Schema3(
+var TeamMemberSchema = new Schema4(
   {
-    employee: { type: Schema3.Types.ObjectId, ref: "Employee" },
+    employee: { type: Schema4.Types.ObjectId, ref: "Employee" },
     name: { type: String, trim: true },
     dept: { type: String, trim: true },
     designation: { type: String, trim: true },
@@ -660,11 +672,11 @@ var TeamMemberSchema = new Schema3(
   },
   { _id: false }
 );
-var ActionRowSchema = new Schema3(
+var ActionRowSchema = new Schema4(
   {
     action: { type: String, trim: true },
     resp: { type: String, trim: true },
-    respEmployee: { type: Schema3.Types.ObjectId, ref: "Employee" },
+    respEmployee: { type: Schema4.Types.ObjectId, ref: "Employee" },
     target: { type: String, trim: true },
     targetAuto: { type: Boolean, default: false },
     status: { type: String, trim: true, default: "Open" },
@@ -674,11 +686,11 @@ var ActionRowSchema = new Schema3(
   },
   { _id: false }
 );
-var D6DocumentSchema = new Schema3(
+var D6DocumentSchema = new Schema4(
   {
     docType: { type: String, enum: D6_DOCUMENT_TYPES, required: true },
     status: { type: String, enum: D6_DOCUMENT_STATUSES, default: "Pending" },
-    attachment: { type: Schema3.Types.ObjectId, ref: "Attachment", default: null },
+    attachment: { type: Schema4.Types.ObjectId, ref: "Attachment", default: null },
     revision: { type: String, trim: true },
     revDate: { type: String, trim: true },
     approver: { type: String, trim: true },
@@ -686,9 +698,9 @@ var D6DocumentSchema = new Schema3(
   },
   { _id: false }
 );
-var SignatureSchema = new Schema3(
+var SignatureSchema = new Schema4(
   {
-    user: { type: Schema3.Types.ObjectId, ref: "User", required: true },
+    user: { type: Schema4.Types.ObjectId, ref: "User", required: true },
     name: { type: String, required: true, trim: true },
     designation: { type: String, trim: true },
     department: { type: String, trim: true },
@@ -698,19 +710,19 @@ var SignatureSchema = new Schema3(
   },
   { _id: false }
 );
-var WorkflowLogSchema = new Schema3(
+var WorkflowLogSchema = new Schema4(
   {
     stage: { type: String, required: true, trim: true },
     at: { type: Date, default: Date.now },
-    by: { type: Schema3.Types.ObjectId, ref: "User" },
+    by: { type: Schema4.Types.ObjectId, ref: "User" },
     byName: { type: String, trim: true },
     notes: { type: String, trim: true }
   },
   { _id: false }
 );
-var RepeatLinkSchema = new Schema3(
+var RepeatLinkSchema = new Schema4(
   {
-    complaint: { type: Schema3.Types.ObjectId, ref: "Complaint", required: true },
+    complaint: { type: Schema4.Types.ObjectId, ref: "Complaint", required: true },
     number: { type: String, trim: true },
     basis: [{ type: String, trim: true }]
   },
@@ -721,16 +733,16 @@ var fishboneDefaults = () => FISHBONE_CATEGORIES.reduce((acc, category) => {
   return acc;
 }, {});
 var d6DefaultList = () => D6_DOCUMENT_TYPES.map((docType) => ({ docType, status: "Pending" }));
-var ComplaintSchema = new Schema3(
+var ComplaintSchema = new Schema4(
   {
     number: { type: String, required: true, unique: true, trim: true, index: true },
-    company: { type: Schema3.Types.ObjectId, ref: "Company", required: true, index: true },
+    company: { type: Schema4.Types.ObjectId, ref: "Company", required: true, index: true },
     type: { type: String, enum: COMPLAINT_TYPES, required: true, index: true },
     status: { type: String, enum: COMPLAINT_STATUSES, default: "Open", index: true },
     receivedAt: { type: Date, required: true, index: true },
     source: { type: String, trim: true },
     reportedBy: { type: String, trim: true },
-    priority: { type: Schema3.Types.ObjectId, ref: "Priority", required: true, index: true },
+    priority: { type: Schema4.Types.ObjectId, ref: "Priority", required: true, index: true },
     customer: { type: String, trim: true, index: true },
     customerContact: { type: String, trim: true },
     customerLocation: { type: String, trim: true },
@@ -738,14 +750,14 @@ var ComplaintSchema = new Schema3(
     customerPO: { type: String, trim: true },
     product: { type: String, trim: true, index: true },
     batch: { type: String, trim: true },
-    internalDept: { type: Schema3.Types.ObjectId, ref: "Department" },
-    againstDept: { type: Schema3.Types.ObjectId, ref: "Department" },
-    responsibleDept: { type: Schema3.Types.ObjectId, ref: "Department", index: true },
+    internalDept: { type: Schema4.Types.ObjectId, ref: "Department" },
+    againstDept: { type: Schema4.Types.ObjectId, ref: "Department" },
+    responsibleDept: { type: Schema4.Types.ObjectId, ref: "Department", index: true },
     category: { type: String, trim: true, index: true },
     subCategory: { type: String, trim: true },
     description: { type: String, required: true, trim: true },
-    owner: { type: Schema3.Types.ObjectId, ref: "User", index: true },
-    createdBy: { type: Schema3.Types.ObjectId, ref: "User" },
+    owner: { type: Schema4.Types.ObjectId, ref: "User", index: true },
+    createdBy: { type: Schema4.Types.ObjectId, ref: "User" },
     acknowledgedAt: { type: Date, default: null },
     ackDelayReason: { type: DelayReasonSchema, default: null },
     containmentAt: { type: Date, default: null },
@@ -756,14 +768,14 @@ var ComplaintSchema = new Schema3(
     capaAssignedAt: { type: Date, default: null },
     capaDelayReason: { type: DelayReasonSchema, default: null },
     closedAt: { type: Date, default: null, index: true },
-    closedBy: { type: Schema3.Types.ObjectId, ref: "User" },
+    closedBy: { type: Schema4.Types.ObjectId, ref: "User" },
     closureRemarks: { type: String, trim: true, default: "" },
     reopenedAt: { type: Date, default: null },
     reopenReason: { type: String, trim: true },
     isRepeat: { type: Boolean, default: false, index: true },
     repeatOf: { type: [RepeatLinkSchema], default: [] },
     repeatBasis: { type: String, trim: true, default: "" },
-    repeatReviewedBy: { type: Schema3.Types.ObjectId, ref: "User" },
+    repeatReviewedBy: { type: Schema4.Types.ObjectId, ref: "User" },
     repeatReviewedAt: { type: Date, default: null },
     repeatReviewRemarks: { type: String, trim: true },
     d0: { type: String, trim: true, default: "" },
@@ -789,7 +801,7 @@ var ComplaintSchema = new Schema3(
       systemic: { type: [String], default: [] },
       singleChain: { type: [String], default: [] }
     },
-    fishbone: { type: Schema3.Types.Mixed, default: fishboneDefaults },
+    fishbone: { type: Schema4.Types.Mixed, default: fishboneDefaults },
     d5Occurrence: { type: [ActionRowSchema], default: [] },
     d5Escape: { type: [ActionRowSchema], default: [] },
     d5Systemic: { type: [ActionRowSchema], default: [] },
@@ -819,7 +831,7 @@ var ComplaintSchema = new Schema3(
     overallEffectiveness: {
       result: { type: String, trim: true, default: "" },
       at: { type: Date, default: null },
-      by: { type: Schema3.Types.ObjectId, ref: "User" },
+      by: { type: Schema4.Types.ObjectId, ref: "User" },
       comments: { type: String, trim: true, default: "" }
     },
     signatures: {
@@ -837,23 +849,23 @@ ComplaintSchema.index({ company: 1, product: 1, receivedAt: -1 });
 ComplaintSchema.index({ owner: 1, status: 1 });
 ComplaintSchema.index({ responsibleDept: 1, status: 1 });
 ComplaintSchema.index({ number: "text", description: "text", customer: "text", product: "text", project: "text" });
-var Complaint = mongoose4.models.Complaint || mongoose4.model("Complaint", ComplaintSchema);
+var Complaint = mongoose5.models.Complaint || mongoose5.model("Complaint", ComplaintSchema);
 
 // server/models/masters.ts
-import mongoose5, { Schema as Schema4 } from "mongoose";
-var CategorySchema = new Schema4(
+import mongoose6, { Schema as Schema5 } from "mongoose";
+var CategorySchema = new Schema5(
   {
     name: { type: String, required: true, trim: true },
     complaintType: { type: String, enum: COMPLAINT_TYPES, required: true, index: true },
-    parent: { type: Schema4.Types.ObjectId, ref: "Category", default: null, index: true },
+    parent: { type: Schema5.Types.ObjectId, ref: "Category", default: null, index: true },
     order: { type: Number, default: 0 },
     active: { type: Boolean, default: true, index: true }
   },
   { timestamps: true }
 );
 CategorySchema.index({ complaintType: 1, parent: 1, name: 1 }, { unique: true });
-var Category = mongoose5.models.Category || mongoose5.model("Category", CategorySchema);
-var PrioritySchema = new Schema4(
+var Category = mongoose6.models.Category || mongoose6.model("Category", CategorySchema);
+var PrioritySchema = new Schema5(
   {
     name: { type: String, required: true, unique: true, trim: true, index: true },
     color: { type: String, required: true, trim: true },
@@ -864,8 +876,8 @@ var PrioritySchema = new Schema4(
   },
   { timestamps: true }
 );
-var Priority = mongoose5.models.Priority || mongoose5.model("Priority", PrioritySchema);
-var DelayReasonSchema2 = new Schema4(
+var Priority = mongoose6.models.Priority || mongoose6.model("Priority", PrioritySchema);
+var DelayReasonSchema2 = new Schema5(
   {
     name: { type: String, required: true, unique: true, trim: true, index: true },
     order: { type: Number, default: 0 },
@@ -873,8 +885,8 @@ var DelayReasonSchema2 = new Schema4(
   },
   { timestamps: true }
 );
-var DelayReason = mongoose5.models.DelayReason || mongoose5.model("DelayReason", DelayReasonSchema2);
-var RootCauseCategorySchema = new Schema4(
+var DelayReason = mongoose6.models.DelayReason || mongoose6.model("DelayReason", DelayReasonSchema2);
+var RootCauseCategorySchema = new Schema5(
   {
     name: { type: String, required: true, unique: true, trim: true, index: true },
     order: { type: Number, default: 0 },
@@ -882,13 +894,13 @@ var RootCauseCategorySchema = new Schema4(
   },
   { timestamps: true }
 );
-var RootCauseCategory = mongoose5.models.RootCauseCategory || mongoose5.model("RootCauseCategory", RootCauseCategorySchema);
+var RootCauseCategory = mongoose6.models.RootCauseCategory || mongoose6.model("RootCauseCategory", RootCauseCategorySchema);
 
 // server/models/configuration.ts
-import mongoose6, { Schema as Schema5 } from "mongoose";
-var TATConfigurationSchema = new Schema5(
+import mongoose7, { Schema as Schema6 } from "mongoose";
+var TATConfigurationSchema = new Schema6(
   {
-    company: { type: Schema5.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
+    company: { type: Schema6.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
     ackHours: { type: Number, default: DEFAULT_TAT_CONFIG.ackHours, min: 1 },
     containmentDays: { type: Number, default: DEFAULT_TAT_CONFIG.containmentDays, min: 1 },
     rcaDays: { type: Number, default: DEFAULT_TAT_CONFIG.rcaDays, min: 1 },
@@ -903,8 +915,8 @@ var TATConfigurationSchema = new Schema5(
   },
   { timestamps: true }
 );
-var TATConfiguration = mongoose6.models.TATConfiguration || mongoose6.model("TATConfiguration", TATConfigurationSchema);
-var EscalationLevelSchema = new Schema5(
+var TATConfiguration = mongoose7.models.TATConfiguration || mongoose7.model("TATConfiguration", TATConfigurationSchema);
+var EscalationLevelSchema = new Schema6(
   {
     level: { type: Number, required: true, min: 1 },
     name: { type: String, required: true, trim: true },
@@ -912,19 +924,19 @@ var EscalationLevelSchema = new Schema5(
   },
   { _id: false }
 );
-var EscalationConfigurationSchema = new Schema5(
+var EscalationConfigurationSchema = new Schema6(
   {
-    company: { type: Schema5.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
+    company: { type: Schema6.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
     levels: { type: [EscalationLevelSchema], default: [] },
     reminderPercentages: { type: [Number], default: [...DEFAULT_REMINDER_PERCENTAGES] },
     active: { type: Boolean, default: true }
   },
   { timestamps: true }
 );
-var EscalationConfiguration = mongoose6.models.EscalationConfiguration || mongoose6.model("EscalationConfiguration", EscalationConfigurationSchema);
-var NumberingConfigurationSchema = new Schema5(
+var EscalationConfiguration = mongoose7.models.EscalationConfiguration || mongoose7.model("EscalationConfiguration", EscalationConfigurationSchema);
+var NumberingConfigurationSchema = new Schema6(
   {
-    company: { type: Schema5.Types.ObjectId, ref: "Company", required: true, unique: true, index: true },
+    company: { type: Schema6.Types.ObjectId, ref: "Company", required: true, unique: true, index: true },
     prefix: { type: String, required: true, trim: true },
     sequencePadding: { type: Number, default: 5, min: 3, max: 10 },
     capaSequencePadding: { type: Number, default: 2, min: 2, max: 6 },
@@ -933,18 +945,18 @@ var NumberingConfigurationSchema = new Schema5(
   },
   { timestamps: true }
 );
-var NumberingConfiguration = mongoose6.models.NumberingConfiguration || mongoose6.model("NumberingConfiguration", NumberingConfigurationSchema);
+var NumberingConfiguration = mongoose7.models.NumberingConfiguration || mongoose7.model("NumberingConfiguration", NumberingConfigurationSchema);
 
 // server/models/Company.ts
-import mongoose7, { Schema as Schema6 } from "mongoose";
-var CompanyLogoSchema = new Schema6(
+import mongoose8, { Schema as Schema7 } from "mongoose";
+var CompanyLogoSchema = new Schema7(
   {
     secureUrl: { type: String, trim: true },
     publicId: { type: String, trim: true }
   },
   { _id: false }
 );
-var CompanySchema = new Schema6(
+var CompanySchema = new Schema7(
   {
     name: { type: String, required: true, trim: true },
     code: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
@@ -957,7 +969,7 @@ var CompanySchema = new Schema6(
   },
   { timestamps: true }
 );
-var Company = mongoose7.models.Company || mongoose7.model("Company", CompanySchema);
+var Company = mongoose8.models.Company || mongoose8.model("Company", CompanySchema);
 
 // server/services/config.service.ts
 async function resolveTatConfig(companyId) {
@@ -1261,26 +1273,26 @@ function delayGaps(overdue, delay2, allowedReasons) {
 }
 
 // server/models/Employee.ts
-import mongoose8, { Schema as Schema7 } from "mongoose";
-var EmployeeSchema = new Schema7(
+import mongoose9, { Schema as Schema8 } from "mongoose";
+var EmployeeSchema = new Schema8(
   {
     employeeCode: { type: String, required: true, uppercase: true, trim: true, index: true },
     name: { type: String, required: true, trim: true },
     email: { type: String, lowercase: true, trim: true, index: true },
     designation: { type: String, trim: true },
-    department: { type: Schema7.Types.ObjectId, ref: "Department", required: true, index: true },
-    company: { type: Schema7.Types.ObjectId, ref: "Company", required: true, index: true },
+    department: { type: Schema8.Types.ObjectId, ref: "Department", required: true, index: true },
+    company: { type: Schema8.Types.ObjectId, ref: "Company", required: true, index: true },
     managerName: { type: String, trim: true },
     managerEmail: { type: String, lowercase: true, trim: true },
     hodName: { type: String, trim: true },
     hodEmail: { type: String, lowercase: true, trim: true },
-    linkedUser: { type: Schema7.Types.ObjectId, ref: "User", index: true },
+    linkedUser: { type: Schema8.Types.ObjectId, ref: "User", index: true },
     active: { type: Boolean, default: true, index: true }
   },
   { timestamps: true }
 );
 EmployeeSchema.index({ employeeCode: 1, company: 1 }, { unique: true });
-var Employee = mongoose8.models.Employee || mongoose8.model("Employee", EmployeeSchema);
+var Employee = mongoose9.models.Employee || mongoose9.model("Employee", EmployeeSchema);
 
 // server/services/mappers.ts
 function id(value) {
@@ -1433,15 +1445,15 @@ function toDomainActor(user, department) {
 }
 
 // server/models/Notification.ts
-import mongoose9, { Schema as Schema8 } from "mongoose";
-var NotificationSchema = new Schema8(
+import mongoose10, { Schema as Schema9 } from "mongoose";
+var NotificationSchema = new Schema9(
   {
-    recipient: { type: Schema8.Types.ObjectId, ref: "User", required: true, index: true },
+    recipient: { type: Schema9.Types.ObjectId, ref: "User", required: true, index: true },
     message: { type: String, required: true, trim: true },
     category: { type: String, enum: NOTIFICATION_CATEGORIES, default: "system", index: true },
     priority: { type: String, enum: ["normal", "high"], default: "normal" },
     entityType: { type: String, trim: true },
-    entityId: { type: Schema8.Types.ObjectId },
+    entityId: { type: Schema9.Types.ObjectId },
     link: { type: String, trim: true },
     read: { type: Boolean, default: false, index: true },
     readAt: { type: Date, default: null }
@@ -1449,19 +1461,7 @@ var NotificationSchema = new Schema8(
   { timestamps: true }
 );
 NotificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
-var Notification = mongoose9.models.Notification || mongoose9.model("Notification", NotificationSchema);
-
-// server/models/Role.ts
-import mongoose10, { Schema as Schema9 } from "mongoose";
-var RoleSchema = new Schema9(
-  {
-    name: { type: String, required: true, unique: true, trim: true, index: true },
-    permissions: [{ type: String, required: true }],
-    active: { type: Boolean, default: true, index: true }
-  },
-  { timestamps: true }
-);
-var Role = mongoose10.models.Role || mongoose10.model("Role", RoleSchema);
+var Notification = mongoose10.models.Notification || mongoose10.model("Notification", NotificationSchema);
 
 // server/services/notification.service.ts
 async function notify(input) {
