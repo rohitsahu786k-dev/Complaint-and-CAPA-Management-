@@ -23,24 +23,26 @@ export const configurationRouter = Router();
 
 configurationRouter.use(requireUser);
 
-/** Everything the client needs to render complaint, 8D and CAPA forms without hardcoded lists. */
+/** Everything the client needs to render complaint, 8D, CAPA and master configuration screens without hardcoded lists. */
 configurationRouter.get(
   "/",
   asyncHandler(async (req, res) => {
     await connectDB();
     const company = typeof req.query.company === "string" && req.query.company ? req.query.company : null;
-    const [tat, escalation, delayReasons, categories, priorities, rootCauseCategories] = await Promise.all([
+    const [tat, escalation, delayReasons, categories, priorities, rootCauseCategories, numbering] = await Promise.all([
       resolveTatConfig(company),
       resolveEscalation(company),
       activeDelayReasons(),
       Category.find({ active: true }).sort({ complaintType: 1, order: 1, name: 1 }).lean(),
       Priority.find({ active: true }).sort({ order: 1 }).lean(),
-      RootCauseCategory.find({ active: true }).sort({ order: 1, name: 1 }).lean()
+      RootCauseCategory.find({ active: true }).sort({ order: 1, name: 1 }).lean(),
+      company ? NumberingConfiguration.findOne({ company, active: true }).lean() : Promise.resolve(null)
     ]);
 
     return ok(res, {
       tat,
       escalation,
+      numbering,
       delayReasons,
       categories,
       priorities,
