@@ -17,6 +17,7 @@ import { Role } from "../models/Role";
 import { User } from "../models/User";
 import { hashPassword, sanitizeUser } from "../services/auth.service";
 import { writeAudit } from "../services/audit.service";
+import { sendTemplatedEmail } from "../services/email.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
 
@@ -81,9 +82,24 @@ masterRouter.post(
     const input = userCreateSchema.parse(req.body);
     await connectDB();
     const passwordHash = await hashPassword(input.password);
-    const user = await User.create({ ...input, passwordHash, passwordChangedAt: new Date() });
+    const { password: _password, ...safeInput } = input;
+    const user = await User.create({ ...safeInput, passwordHash, passwordChangedAt: new Date() });
     await writeAudit({ actor: req.user, action: "CREATE", entity: "User", entityId: String(user._id), after: { username: user.username } });
     const populated = await user.populate("role");
+
+    if (user.email) {
+      await sendTemplatedEmail({
+        triggerEvent: "USER_CREATED",
+        recipients: [user.email],
+        data: {
+          recipientName: user.name,
+          username: user.username,
+          roleName: populated.role && typeof populated.role === "object" && "name" in populated.role ? String(populated.role.name) : "Portal User"
+        },
+        sentBySystem: false
+      });
+    }
+
     return ok(res, { user: sanitizeUser(populated) }, 201);
   })
 );
@@ -96,13 +112,7 @@ masterRouter.patch(
     await connectDB();
     const before = await User.findById(req.params.id).lean();
     if (!before) throw httpError(404, "User not found");
-    const update: Record<string, unknown> = { ...input };
-    if (input.password) {
-      update.passwordHash = await hashPassword(input.password);
-      update.passwordChangedAt = new Date();
-      delete update.password;
-    }
-    const user = await User.findByIdAndUpdate(req.params.id, update, { new: true }).populate("role");
+    const user = await User.findByIdAndUpdate(req.params.id, input, { new: true }).populate("role");
     if (!user) throw httpError(404, "User not found");
     await writeAudit({
       actor: req.user,
@@ -110,7 +120,7 @@ masterRouter.patch(
       entity: "User",
       entityId: req.params.id,
       before,
-      after: { username: user.username }
+      after: { username: user.username, active: user.active, role: String(user.role) }
     });
     return ok(res, { user: sanitizeUser(user) });
   })
