@@ -19,8 +19,6 @@ function useApiQuery<T>(key: unknown[], path: string, options?: Partial<UseQuery
   return useQuery<T, Error>({ queryKey: key, queryFn: () => api<T>(path), ...options });
 }
 
-/* ------------------------------------------------------------------ permissions */
-
 export function usePermissions() {
   const { data } = useCurrentUser();
   const user = data?.user;
@@ -36,8 +34,6 @@ export function usePermissions() {
 }
 
 export type Permissions = ReturnType<typeof usePermissions>;
-
-/* ------------------------------------------------------------------ shared reference data */
 
 export type ConfigurationResponse = {
   tat: Record<string, number>;
@@ -78,8 +74,6 @@ export function useAssignableUsers(company?: string) {
     { staleTime: 5 * 60 * 1000 }
   );
 }
-
-/* ------------------------------------------------------------------ analytics */
 
 export type DashboardResponse = {
   kpis: Record<string, number>;
@@ -171,8 +165,6 @@ export type RepeatResponse = {
 export function useRepeatAnalytics(company?: string) {
   return useApiQuery<RepeatResponse>(["analytics", "repeat", company ?? "all"], `/api/analytics/repeat${buildQuery({ company })}`);
 }
-
-/* ------------------------------------------------------------------ complaints */
 
 export type Paginated<T> = { items: T[]; page: number; pageSize: number; total: number; totalPages: number };
 
@@ -267,6 +259,7 @@ export type ComplaintDetail = {
   d7ShortTermDate?: string;
   d7RepeatObserved?: boolean;
   d7Regulatory?: string;
+  d7Actions?: ActionRow[];
   d7NoRepeatConfirmed?: boolean;
   d7LongTermDate?: string;
   d7LongTermRepeatObserved?: boolean;
@@ -285,6 +278,7 @@ export type ActionRow = {
   action?: string;
   resp?: string;
   target?: string;
+  targetAuto?: boolean;
   status?: string;
   remarks?: string;
   ctqImpact?: string;
@@ -341,6 +335,14 @@ export type ComplaintDetailResponse = {
   capas: CapaItem[];
   tat: StageTat[];
   tatConfig: Record<string, number>;
+  targetDates: { d3: string; d5: string; d6: string };
+  resolved: {
+    owner: { _id: string; name: string; username: string; email: string } | null;
+    priority: { _id: string; name: string; color: string } | null;
+    responsibleDept: { _id: string; name: string } | null;
+    internalDept: { _id: string; name: string } | null;
+    againstDept: { _id: string; name: string } | null;
+  };
   permissions: { canEdit: boolean; canClose: boolean; canDelete: boolean };
 };
 
@@ -410,8 +412,6 @@ export function useAuditTrail(params: Record<string, QueryValue>, enabled: boole
   });
 }
 
-/* ------------------------------------------------------------------ notifications */
-
 export type NotificationRecord = {
   _id: string;
   message: string;
@@ -427,8 +427,6 @@ export function useNotifications(params: Record<string, QueryValue> = {}) {
     refetchInterval: 60000
   });
 }
-
-/* ------------------------------------------------------------------ reports */
 
 export type ReportSummary = { id: string; title: string; description: string; group: string; permission: string };
 
@@ -446,11 +444,8 @@ export function useReport(id: string | undefined, params: Record<string, QueryVa
   );
 }
 
-/* ------------------------------------------------------------------ mutations */
-
 type MutationInput = Record<string, unknown> | undefined;
 
-/** Shared mutation helper that invalidates the queries a write can affect. */
 export function useApiMutation<TResult, TInput = MutationInput>(
   method: "POST" | "PATCH" | "PUT" | "DELETE",
   path: string | ((input: TInput) => string),
@@ -471,7 +466,6 @@ export function useApiMutation<TResult, TInput = MutationInput>(
 
 export type ApiIssue = { field: string; message: string; section?: string };
 
-/** Field level issues raised by a 422 business rule failure. */
 export function issuesFrom(error: unknown): ApiIssue[] {
   const candidate = error as { issues?: ApiIssue[] } | null;
   return Array.isArray(candidate?.issues) ? candidate.issues : [];
