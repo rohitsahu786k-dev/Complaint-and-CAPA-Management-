@@ -237,9 +237,16 @@ async function restoreConfiguration(
   const id = idOf(record);
   if (!id) return "conflict" as const;
   const company = record.company ?? null;
-  const model = key === "tatConfigurations" ? TATConfiguration : key === "escalationConfigurations" ? EscalationConfiguration : NumberingConfiguration;
-  if (await model.exists({ $or: [{ _id: id }, { company }] })) return "existing" as const;
-  if (!dryRun) await model.create(safeRecord(record));
+  if (key === "tatConfigurations") {
+    if (await TATConfiguration.exists({ $or: [{ _id: id }, { company }] })) return "existing" as const;
+    if (!dryRun) await TATConfiguration.create(safeRecord(record));
+  } else if (key === "escalationConfigurations") {
+    if (await EscalationConfiguration.exists({ $or: [{ _id: id }, { company }] })) return "existing" as const;
+    if (!dryRun) await EscalationConfiguration.create(safeRecord(record));
+  } else {
+    if (await NumberingConfiguration.exists({ $or: [{ _id: id }, { company }] })) return "existing" as const;
+    if (!dryRun) await NumberingConfiguration.create(safeRecord(record));
+  }
   return "inserted" as const;
 }
 

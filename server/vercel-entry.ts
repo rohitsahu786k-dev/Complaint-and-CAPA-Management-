@@ -1,7 +1,17 @@
+/// <reference path="./types/express.d.ts" />
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createApp } from "../server/app";
+import { createApp } from "./app";
 
-let cachedApp: ReturnType<typeof createApp> | null = null;
+/**
+ * Source for the Vercel serverless function. esbuild bundles this into api/index.js
+ * so that every local import and @shared/* alias is inlined ahead of time: the
+ * package is ESM ("type": "module"), and Node's ESM loader resolves neither
+ * extensionless relative specifiers nor tsconfig path aliases at runtime.
+ */
+
+type ExpressApp = ReturnType<typeof createApp>;
+
+let cachedApp: ExpressApp | null = null;
 
 function getApp() {
   if (!cachedApp) {

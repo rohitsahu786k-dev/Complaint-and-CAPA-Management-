@@ -8,13 +8,14 @@
     "dev:api": "tsx watch server/dev.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && npm run build:api",
     "test": "vitest run",
     "security:scan": "node scripts/secret-scan.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "seed": "tsx server/scripts/seed.ts",
     "format": "prettier --write \"**/*.{ts,tsx,json,css,md}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,json,css,md}\""
+    "format:check": "prettier --check \"**/*.{ts,tsx,json,css,md}\"",
+    "build:api": "esbuild server/vercel-entry.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=api/index.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -68,6 +69,7 @@
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.43.0",
     "vite": "^5.4.19",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "esbuild": "^0.27.0"
   }
 }
