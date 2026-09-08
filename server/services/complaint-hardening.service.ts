@@ -90,7 +90,10 @@ export async function getHardenedComplaintDetail(complaintId: string, user: ApiU
 
   return {
     ...detail,
-    tat: detail.tat.map((entry) => ({ ...entry, stage: WORKFLOW_STAGE_LABELS[entry.stage as WorkflowStage] ?? entry.stage })),
+    tat: detail.tat.map((entry) => ({
+      ...entry,
+      stage: entry.stage === "rca" ? "RCA" : WORKFLOW_STAGE_LABELS[entry.stage as WorkflowStage] ?? entry.stage
+    })),
     targetDates,
     resolved: {
       owner: owner ? { _id: String(owner._id), name: owner.name, username: owner.username, email: owner.email ?? "" } : null,
