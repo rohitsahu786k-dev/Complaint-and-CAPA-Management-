@@ -19,6 +19,7 @@ import { sendTemplatedEmail } from "../services/email.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
+import { createHmac } from "node:crypto";
 
 export const authRouter = Router();
 
@@ -41,15 +42,27 @@ const resetRateLimit = createRateLimit({
   message: "Too many password reset attempts. Please try again later."
 });
 
-function cookieOptions() {
-  return {
-    httpOnly: true,
-    secure: isProduction(),
-    sameSite: "lax" as const,
-    signed: true,
-    maxAge: sessionMaxAgeMs(),
-    path: "/"
-  };
+function signCookie(value: string) {
+  const signature = createHmac("sha256", getEnv().COOKIE_SECRET).update(value).digest("base64").replace(/=+$/, "");
+  return `s:${value}.${signature}`;
+}
+
+function sessionCookieHeader(token: string) {
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(signCookie(token))}`,
+    `Max-Age=${Math.floor(sessionMaxAgeMs() / 1000)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax"
+  ];
+  if (isProduction()) parts.push("Secure");
+  return parts.join("; ");
+}
+
+function clearSessionCookieHeader() {
+  const parts = [`${SESSION_COOKIE}=`, "Max-Age=0", "Path=/", "HttpOnly", "SameSite=Lax"];
+  if (isProduction()) parts.push("Secure");
+  return parts.join("; ");
 }
 
 authRouter.post(
@@ -64,7 +77,7 @@ authRouter.post(
       stage = "authenticate";
       const user = await authenticate(input.username, input.password);
       stage = "session";
-      res.cookie(SESSION_COOKIE, signSession(String(user._id)), cookieOptions());
+      res.setHeader("Set-Cookie", sessionCookieHeader(signSession(String(user._id))));
       stage = "response";
       const apiUser = sanitizeUser(user);
       stage = "audit";
@@ -87,7 +100,7 @@ authRouter.post(
   requireUser,
   asyncHandler(async (req, res) => {
     await writeAudit({ actor: req.user, action: "LOGOUT", entity: "User", entityId: req.user?.id });
-    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    res.setHeader("Set-Cookie", clearSessionCookieHeader());
     return ok(res, { loggedOut: true });
   })
 );

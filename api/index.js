@@ -4831,6 +4831,7 @@ function createRateLimit(options) {
 }
 
 // server/routes/auth.routes.ts
+import { createHmac } from "node:crypto";
 var authRouter = Router4();
 var loginRateLimit = createRateLimit({
   keyPrefix: "auth:login",
@@ -4850,15 +4851,25 @@ var resetRateLimit = createRateLimit({
   max: 20,
   message: "Too many password reset attempts. Please try again later."
 });
-function cookieOptions() {
-  return {
-    httpOnly: true,
-    secure: isProduction(),
-    sameSite: "lax",
-    signed: true,
-    maxAge: sessionMaxAgeMs(),
-    path: "/"
-  };
+function signCookie(value) {
+  const signature2 = createHmac("sha256", getEnv().COOKIE_SECRET).update(value).digest("base64").replace(/=+$/, "");
+  return `s:${value}.${signature2}`;
+}
+function sessionCookieHeader(token) {
+  const parts = [
+    `${SESSION_COOKIE}=${encodeURIComponent(signCookie(token))}`,
+    `Max-Age=${Math.floor(sessionMaxAgeMs() / 1e3)}`,
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax"
+  ];
+  if (isProduction()) parts.push("Secure");
+  return parts.join("; ");
+}
+function clearSessionCookieHeader() {
+  const parts = [`${SESSION_COOKIE}=`, "Max-Age=0", "Path=/", "HttpOnly", "SameSite=Lax"];
+  if (isProduction()) parts.push("Secure");
+  return parts.join("; ");
 }
 authRouter.post(
   "/login",
@@ -4872,7 +4883,7 @@ authRouter.post(
       stage = "authenticate";
       const user = await authenticate(input.username, input.password);
       stage = "session";
-      res.cookie(SESSION_COOKIE, signSession(String(user._id)), cookieOptions());
+      res.setHeader("Set-Cookie", sessionCookieHeader(signSession(String(user._id))));
       stage = "response";
       const apiUser = sanitizeUser(user);
       stage = "audit";
@@ -4894,7 +4905,7 @@ authRouter.post(
   requireUser,
   asyncHandler(async (req, res) => {
     await writeAudit({ actor: req.user, action: "LOGOUT", entity: "User", entityId: req.user?.id });
-    res.clearCookie(SESSION_COOKIE, { path: "/" });
+    res.setHeader("Set-Cookie", clearSessionCookieHeader());
     return ok(res, { loggedOut: true });
   })
 );
