@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
 import { requireUser } from "../middleware/auth";
@@ -25,200 +25,150 @@ import { retryEmail, sendRawTestEmail, sendTemplatedEmail } from "../services/em
 import { processEscalations } from "../services/escalation.service";
 import { Complaint } from "../models/Complaint";
 import { getAppUrl } from "../lib/app-url";
+import { hasPermission } from "../domain/rbac";
+import { loadComplaintContext } from "../services/complaint.service";
+import { writeAudit } from "../services/audit.service";
 
 export const emailRouter = Router();
+emailRouter.use(requireUser);
 
-// ==================== SETTINGS & HEALTH ====================
-emailRouter.get(
-  "/settings",
-  requireUser,
-  asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can view SMTP settings");
-    }
-    const status = getSmtpStatus();
-    return ok(res, status);
-  })
-);
+function requireMasterAdmin(req: Request, _res: Response, next: NextFunction) {
+  const permissions = req.user?.role?.permissions ?? [];
+  if (req.user?.role?.name === "Master Admin" || permissions.includes("*")) return next();
+  return next(httpError(403, "Only Master Admin can access email administration"));
+}
+
+emailRouter.get("/settings", requireMasterAdmin, (_req, res) => ok(res, getSmtpStatus()));
 
 emailRouter.post(
   "/settings/verify",
-  requireUser,
-  asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can verify SMTP connection");
-    }
-    const result = await verifySmtpConnection();
-    return ok(res, result);
-  })
+  requireMasterAdmin,
+  asyncHandler(async (_req, res) => ok(res, await verifySmtpConnection()))
 );
 
 emailRouter.post(
   "/settings/test",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can send test emails");
-    }
     const input = sendTestEmailSchema.parse(req.body);
-    const result = await sendRawTestEmail(input);
-    return ok(res, result);
+    return ok(res, await sendRawTestEmail(input));
   })
 );
 
-// ==================== TEMPLATES ====================
 emailRouter.get(
   "/templates",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
     const triggerEvent = typeof req.query.triggerEvent === "string" ? req.query.triggerEvent : undefined;
     const activeOnly = req.query.activeOnly === "true";
     const search = typeof req.query.search === "string" ? req.query.search : undefined;
-
-    const templates = await listEmailTemplates({ triggerEvent, activeOnly, search });
-    return ok(res, templates);
+    return ok(res, await listEmailTemplates({ triggerEvent, activeOnly, search }));
   })
 );
 
 emailRouter.get(
   "/templates/:id",
-  requireUser,
-  asyncHandler(async (req, res) => {
-    const template = await getEmailTemplateById(req.params.id);
-    return ok(res, template);
-  })
+  requireMasterAdmin,
+  asyncHandler(async (req, res) => ok(res, await getEmailTemplateById(req.params.id)))
 );
 
 emailRouter.post(
   "/templates",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can create email templates");
-    }
     const input = emailTemplateSchema.parse(req.body);
-    const created = await createEmailTemplate(input, req.user.id);
-    return ok(res, created, 201);
+    return ok(res, await createEmailTemplate(input, req.user?.id), 201);
   })
 );
 
 emailRouter.patch(
   "/templates/:id",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can edit email templates");
-    }
     const input = emailTemplateUpdateSchema.parse(req.body);
-    const updated = await updateEmailTemplate(req.params.id, input, req.user.id);
-    return ok(res, updated);
+    return ok(res, await updateEmailTemplate(req.params.id, input, req.user?.id));
   })
 );
 
 emailRouter.post(
   "/templates/:id/preview",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
     const input = templatePreviewSchema.parse(req.body);
-    const preview = await previewEmailTemplate(req.params.id, input);
-    return ok(res, preview);
+    return ok(res, await previewEmailTemplate(req.params.id, input));
   })
 );
 
 emailRouter.post(
   "/templates/:id/test-send",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can send template test emails");
-    }
     const input = templateTestSendSchema.parse(req.body);
     const template = await getEmailTemplateById(req.params.id);
-
-    const result = await sendTemplatedEmail({
-      triggerEvent: template.triggerEvent,
-      recipients: [input.to],
-      data: (input.sampleData || {}) as Record<string, string | number>,
-      sentBySystem: false
-    });
-
-    return ok(res, result);
+    return ok(
+      res,
+      await sendTemplatedEmail({
+        triggerEvent: template.triggerEvent,
+        recipients: [input.to],
+        data: (input.sampleData || {}) as Record<string, string | number>,
+        sentBySystem: false,
+        bypassRecipientRules: true
+      })
+    );
   })
 );
 
-// ==================== LOGS & RETRY ====================
 emailRouter.get(
   "/logs",
-  requireUser,
-  asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can view email delivery logs");
-    }
-    const query = emailLogQuerySchema.parse(req.query);
-    const logs = await queryEmailLogs(query);
-    return ok(res, logs);
-  })
+  requireMasterAdmin,
+  asyncHandler(async (req, res) => ok(res, await queryEmailLogs(emailLogQuerySchema.parse(req.query))))
 );
 
 emailRouter.get(
   "/logs/:id",
-  requireUser,
-  asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can view email log details");
-    }
-    const log = await getEmailLogById(req.params.id);
-    return ok(res, log);
-  })
+  requireMasterAdmin,
+  asyncHandler(async (req, res) => ok(res, await getEmailLogById(req.params.id)))
 );
 
 emailRouter.post(
   "/logs/retry",
-  requireUser,
+  requireMasterAdmin,
   asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can retry failed emails");
-    }
     const input = retryEmailSchema.parse(req.body);
-    const result = await retryEmail(input.logId);
-    return ok(res, result);
+    return ok(res, await retryEmail(input.logId));
   })
 );
 
-// ==================== MANUAL ESCALATION TRIGGER ====================
 emailRouter.post(
   "/escalation/run",
-  requireUser,
-  asyncHandler(async (req, res) => {
-    if (!req.user?.role?.name?.includes("Master Admin")) {
-      throw httpError(403, "Only Master Admin can trigger manual escalations");
-    }
-    const result = await processEscalations();
-    return ok(res, result);
-  })
+  requireMasterAdmin,
+  asyncHandler(async (_req, res) => ok(res, await processEscalations()))
 );
 
-// ==================== REPORT SHARING ====================
 emailRouter.post(
   "/share-report",
-  requireUser,
   asyncHandler(async (req, res) => {
     const input = shareReportSchema.parse(req.body);
-    const complaint = await Complaint.findById(input.complaintId)
-      .populate("responsibleDepartment", "name")
-      .populate("priority", "name")
-      .lean();
+    const context = await loadComplaintContext(input.complaintId, req.user);
+    if (
+      !hasPermission(context.actor, "report.all") &&
+      !hasPermission(context.actor, "export.all") &&
+      !hasPermission(context.actor, "complaint.edit") &&
+      !hasPermission(context.actor, "complaint.assign")
+    ) {
+      throw httpError(403, "You do not have permission to share complaint reports");
+    }
 
+    const complaint = await Complaint.findById(input.complaintId).populate("responsibleDept", "name").populate("priority", "name").lean();
     if (!complaint) throw httpError(404, "Complaint not found");
 
-    const appUrl = getAppUrl();
-    const reportUrl = `${appUrl}/complaints/${complaint._id}`;
-
+    const reportUrl = `${getAppUrl()}/complaints/${complaint._id}`;
     const result = await sendTemplatedEmail({
       triggerEvent: "COMPLAINT_REPORT_SHARED",
       recipients: [input.recipientEmail],
       relatedComplaintId: complaint._id,
       sentBySystem: false,
+      bypassRecipientRules: true,
       data: {
         sharedBy: req.user?.name || "Quality Team",
         recipientName: input.recipientName,
@@ -229,9 +179,15 @@ emailRouter.post(
         notes: input.notes || "Please find the formal Quality 8D report linked below.",
         reportUrl
       }
-
     });
 
+    await writeAudit({
+      actor: req.user,
+      action: "EXPORT",
+      entity: "ComplaintReportShare",
+      entityId: input.complaintId,
+      metadata: { recipient: input.recipientEmail, status: result.status }
+    });
     return ok(res, result);
   })
 );
