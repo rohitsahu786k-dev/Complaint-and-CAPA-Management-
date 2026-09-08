@@ -1,4 +1,5 @@
 import { Types } from "mongoose";
+import { WORKFLOW_STAGE_LABELS, type WorkflowStage } from "@shared/constants/domain";
 import type { ApiUser } from "@shared/types/api";
 import type { EightDInput } from "@shared/schemas/complaint";
 import { canEditComplaint, hasPermission, isMasterAdmin } from "../domain/rbac";
@@ -89,6 +90,7 @@ export async function getHardenedComplaintDetail(complaintId: string, user: ApiU
 
   return {
     ...detail,
+    tat: detail.tat.map((entry) => ({ ...entry, stage: WORKFLOW_STAGE_LABELS[entry.stage as WorkflowStage] ?? entry.stage })),
     targetDates,
     resolved: {
       owner: owner ? { _id: String(owner._id), name: owner.name, username: owner.username, email: owner.email ?? "" } : null,
