@@ -11,6 +11,12 @@ export function ProtectedRoute() {
         Loading secure workspace...
       </div>
     );
+
   if (!data?.user) return <Navigate to="/login" replace state={{ from: location }} />;
+
+  if (data.user.forcePasswordChange && location.pathname !== "/profile") {
+    return <Navigate to="/profile" replace state={{ passwordChangeRequired: true }} />;
+  }
+
   return <Outlet />;
 }
