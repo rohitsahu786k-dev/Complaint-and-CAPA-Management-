@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
-import { requirePermission, requireUser } from "../middleware/auth";
+import { requireUser } from "../middleware/auth";
 import { getSmtpStatus, verifySmtpConnection } from "../lib/mailer";
 import {
   emailLogQuerySchema,
@@ -36,7 +36,6 @@ function assertMasterAdmin(req: { user?: { role?: { name?: string } } }) {
   if (!isMasterAdmin(req)) throw httpError(403, "Only Master Admin can access email administration");
 }
 
-// ==================== SETTINGS & HEALTH ====================
 emailRouter.get(
   "/settings",
   requireUser,
@@ -65,7 +64,6 @@ emailRouter.post(
   })
 );
 
-// ==================== TEMPLATES ====================
 emailRouter.get(
   "/templates",
   requireUser,
@@ -136,7 +134,6 @@ emailRouter.post(
   })
 );
 
-// ==================== LOGS & RETRY ====================
 emailRouter.get(
   "/logs",
   requireUser,
@@ -166,7 +163,6 @@ emailRouter.post(
   })
 );
 
-// ==================== MANUAL ESCALATION TRIGGER ====================
 emailRouter.post(
   "/escalation/run",
   requireUser,
@@ -176,7 +172,6 @@ emailRouter.post(
   })
 );
 
-// ==================== REPORT SHARING ====================
 emailRouter.post(
   "/share-report",
   requireUser,
