@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PERMISSIONS, ROLE_NAMES } from "../constants/permissions";
+import { passwordSchema } from "./auth";
 
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
 const optionalObjectId = objectId.optional();
@@ -54,21 +55,17 @@ export const userCreateSchema = z.object({
   name: z.string().trim().min(2).max(160),
   username: z.string().trim().min(3).max(80).toLowerCase(),
   email: z.string().trim().email().optional().or(z.literal("")),
-  password: z.string().min(8).max(200),
+  password: passwordSchema,
   role: objectId,
   companyIds: z.array(objectId).default([]),
   department: optionalObjectId,
   employee: optionalObjectId,
   active: z.boolean().default(true),
-  forcePasswordChange: z.boolean().default(false)
+  forcePasswordChange: z.boolean().default(true)
 });
 
-export const userUpdateSchema = userCreateSchema
-  .partial()
-  .omit({ password: true })
-  .extend({
-    password: z.string().min(8).max(200).optional()
-  });
+/** Administrative profile edits never accept a password. Use the reset-access workflow instead. */
+export const userUpdateSchema = userCreateSchema.partial().omit({ password: true });
 
 export type CompanyInput = z.infer<typeof companyCreateSchema>;
 export type DepartmentInput = z.infer<typeof departmentCreateSchema>;
