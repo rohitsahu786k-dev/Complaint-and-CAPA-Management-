@@ -6,7 +6,13 @@ import { asyncHandler } from "../utils/async-handler";
 
 export const healthRouter = Router();
 
-healthRouter.get("/", (_req, res) => ok(res, { status: "ok", service: "onepws-complaint-capa-api" }));
+healthRouter.get("/", (_req, res) =>
+  ok(res, {
+    status: "ok",
+    service: "onepws-complaint-capa-api",
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "local"
+  })
+);
 
 healthRouter.get(
   "/db",

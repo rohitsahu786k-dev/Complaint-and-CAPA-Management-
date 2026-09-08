@@ -6095,7 +6095,14 @@ configurationRouter.patch(
 import { Router as Router8 } from "express";
 import mongoose17 from "mongoose";
 var healthRouter = Router8();
-healthRouter.get("/", (_req, res) => ok(res, { status: "ok", service: "onepws-complaint-capa-api" }));
+healthRouter.get(
+  "/",
+  (_req, res) => ok(res, {
+    status: "ok",
+    service: "onepws-complaint-capa-api",
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || "local"
+  })
+);
 healthRouter.get(
   "/db",
   asyncHandler(async (_req, res) => {
