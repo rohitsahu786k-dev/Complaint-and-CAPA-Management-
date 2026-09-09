@@ -7,6 +7,7 @@ import "../models/Role";
 import { User, type UserDocument } from "../models/User";
 import { httpError } from "../utils/http";
 import { randomToken, sha256 } from "../utils/crypto";
+import { LOCKOUT_MS, MAX_FAILED_LOGINS, isLocked, lockMinutesRemaining, registerFailedAttempt } from "../domain/lockout";
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
@@ -66,20 +67,40 @@ export async function authenticate(username: string, password: string) {
 
   const generic = httpError(401, "Invalid username or password");
   if (!user) throw generic;
-  if (user.lockedUntil && user.lockedUntil > new Date()) throw generic;
+
+  const lockState = { failedLoginCount: user.failedLoginCount, lockedUntil: user.lockedUntil };
+
+  // A live lockout is reported explicitly. Hiding it behind the generic message left
+  // users retrying a known-good password against a locked account with no way to
+  // understand why sign-in kept failing.
+  if (isLocked(lockState)) {
+    const minutes = lockMinutesRemaining(lockState);
+    throw httpError(
+      423,
+      `This account is temporarily locked after ${MAX_FAILED_LOGINS} failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or use "Forgot password" to reset it.`
+    );
+  }
 
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) {
-    const failedLoginCount = (user.failedLoginCount || 0) + 1;
+    const attempt = registerFailedAttempt(lockState);
     await User.updateOne(
       { _id: user._id },
       {
         $set: {
-          failedLoginCount,
-          ...(failedLoginCount >= 5 ? { lockedUntil: new Date(Date.now() + 15 * 60 * 1000) } : {})
-        }
+          failedLoginCount: attempt.failedLoginCount,
+          ...(attempt.lockedUntil ? { lockedUntil: attempt.lockedUntil } : {})
+        },
+        // Clear a spent lock so the stale timestamp cannot resurrect the old streak.
+        ...(user.lockedUntil && !attempt.locked ? { $unset: { lockedUntil: "" } } : {})
       }
     );
+    if (attempt.locked) {
+      throw httpError(
+        423,
+        `This account is now temporarily locked after ${MAX_FAILED_LOGINS} failed sign-in attempts. Try again in ${Math.round(LOCKOUT_MS / 60000)} minutes, or use "Forgot password" to reset it.`
+      );
+    }
     throw generic;
   }
 

@@ -148,6 +148,31 @@ function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+// server/domain/lockout.ts
+var MAX_FAILED_LOGINS = 5;
+var LOCKOUT_MS = 15 * 60 * 1e3;
+function isLocked(state, now = /* @__PURE__ */ new Date()) {
+  return Boolean(state.lockedUntil && state.lockedUntil > now);
+}
+function lockMinutesRemaining(state, now = /* @__PURE__ */ new Date()) {
+  if (!state.lockedUntil) return 0;
+  return Math.max(1, Math.ceil((state.lockedUntil.getTime() - now.getTime()) / 6e4));
+}
+function effectiveFailureCount(state, now = /* @__PURE__ */ new Date()) {
+  if (isLocked(state, now)) return state.failedLoginCount || 0;
+  if (state.lockedUntil) return 0;
+  return state.failedLoginCount || 0;
+}
+function registerFailedAttempt(state, now = /* @__PURE__ */ new Date()) {
+  const failedLoginCount = effectiveFailureCount(state, now) + 1;
+  const locked = failedLoginCount >= MAX_FAILED_LOGINS;
+  return {
+    failedLoginCount,
+    locked,
+    lockedUntil: locked ? new Date(now.getTime() + LOCKOUT_MS) : null
+  };
+}
+
 // server/services/auth.service.ts
 var RESET_TOKEN_TTL_MS = 60 * 60 * 1e3;
 var SESSION_TTL_SECONDS = 8 * 60 * 60;
@@ -192,19 +217,34 @@ async function authenticate(username, password) {
   const user = await User.findOne({ username: username.toLowerCase(), active: true }).select("+passwordHash +failedLoginCount +lockedUntil").exec();
   const generic = httpError(401, "Invalid username or password");
   if (!user) throw generic;
-  if (user.lockedUntil && user.lockedUntil > /* @__PURE__ */ new Date()) throw generic;
+  const lockState = { failedLoginCount: user.failedLoginCount, lockedUntil: user.lockedUntil };
+  if (isLocked(lockState)) {
+    const minutes = lockMinutesRemaining(lockState);
+    throw httpError(
+      423,
+      `This account is temporarily locked after ${MAX_FAILED_LOGINS} failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}, or use "Forgot password" to reset it.`
+    );
+  }
   const ok2 = await verifyPassword(password, user.passwordHash);
   if (!ok2) {
-    const failedLoginCount = (user.failedLoginCount || 0) + 1;
+    const attempt = registerFailedAttempt(lockState);
     await User.updateOne(
       { _id: user._id },
       {
         $set: {
-          failedLoginCount,
-          ...failedLoginCount >= 5 ? { lockedUntil: new Date(Date.now() + 15 * 60 * 1e3) } : {}
-        }
+          failedLoginCount: attempt.failedLoginCount,
+          ...attempt.lockedUntil ? { lockedUntil: attempt.lockedUntil } : {}
+        },
+        // Clear a spent lock so the stale timestamp cannot resurrect the old streak.
+        ...user.lockedUntil && !attempt.locked ? { $unset: { lockedUntil: "" } } : {}
       }
     );
+    if (attempt.locked) {
+      throw httpError(
+        423,
+        `This account is now temporarily locked after ${MAX_FAILED_LOGINS} failed sign-in attempts. Try again in ${Math.round(LOCKOUT_MS / 6e4)} minutes, or use "Forgot password" to reset it.`
+      );
+    }
     throw generic;
   }
   await User.updateOne(

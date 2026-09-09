@@ -5,8 +5,14 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules"] },
+  // api/index.js is the esbuild bundle produced by `npm run build:api`, not source.
+  { ignores: ["dist", "node_modules", "api/index.js"] },
   js.configs.recommended,
+  // Plain Node scripts (build/CI helpers) run outside the browser and need Node globals.
+  {
+    files: ["**/*.{js,mjs,cjs}"],
+    languageOptions: { ecmaVersion: 2022, sourceType: "module", globals: { ...globals.node } }
+  },
   ...tseslint.configs.recommended,
   {
     files: ["**/*.{ts,tsx}"],

@@ -137,12 +137,30 @@ export function DataTable<T>({
       <ul className="space-y-2 md:hidden">
         {rows.map((row) => (
           <li key={rowKey(row)}>
-            <button
-              type="button"
+            {/*
+              A div with a button role rather than a real <button>: several columns
+              render their own action buttons, and nesting those inside a button is
+              invalid HTML that browsers recover from unpredictably, swallowing the
+              inner control's clicks.
+            */}
+            <div
+              role={onRowClick ? "button" : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
               onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onRowClick(row);
+                      }
+                    }
+                  : undefined
+              }
               className={cn(
                 "w-full rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm",
-                onRowClick ? "active:bg-slate-50" : "cursor-default"
+                onRowClick && "cursor-pointer active:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-red"
               )}
             >
               <div className="text-sm font-bold text-brand-charcoal">{primary.render(row)}</div>
@@ -154,7 +172,7 @@ export function DataTable<T>({
                   </div>
                 ))}
               </dl>
-            </button>
+            </div>
           </li>
         ))}
       </ul>

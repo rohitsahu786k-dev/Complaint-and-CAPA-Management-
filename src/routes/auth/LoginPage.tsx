@@ -18,12 +18,18 @@ export function LoginPage() {
   const form = useForm<LoginInput>({ resolver: zodResolver(loginSchema), defaultValues: { username: "", password: "" } });
 
   async function onSubmit(input: LoginInput) {
-    const result = await login.mutateAsync(input);
-    if (result.user.forcePasswordChange) {
-      navigate("/profile", { replace: true, state: { passwordChangeRequired: true } });
-      return;
+    // A rejected sign-in is already surfaced through login.error below; letting it
+    // escape react-hook-form's handler only produced an unhandled promise rejection.
+    try {
+      const result = await login.mutateAsync(input);
+      if (result.user.forcePasswordChange) {
+        navigate("/profile", { replace: true, state: { passwordChangeRequired: true } });
+        return;
+      }
+      navigate(from, { replace: true });
+    } catch {
+      // Intentionally ignored: the mutation error drives the inline message.
     }
-    navigate(from, { replace: true });
   }
 
   return (

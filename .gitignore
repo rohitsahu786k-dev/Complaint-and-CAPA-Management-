@@ -1,6 +1,7 @@
 .env
-.env.local
-.env.production
+# Every local env variant (.env.local, .env.production, .env.bak.*, ...) stays untracked.
+.env.*
+!.env.example
 *.local
 node_modules
 dist
