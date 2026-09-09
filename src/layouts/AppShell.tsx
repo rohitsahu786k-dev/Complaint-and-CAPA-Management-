@@ -7,6 +7,7 @@ import {
   FileBarChart,
   Gauge,
   History,
+  Lock,
   LogOut,
   Mail,
   Menu,
@@ -66,7 +67,12 @@ const NAV: NavGroup[] = [
   {
     heading: "Governance",
     items: [
-      { to: "/reports", label: "Reports", icon: FileBarChart, visible: (permissions) => permissions.can("report.all") || canView(permissions) },
+      {
+        to: "/reports",
+        label: "Reports",
+        icon: FileBarChart,
+        visible: (permissions) => permissions.can("report.all") || canView(permissions)
+      },
       { to: "/audit", label: "Audit Trail", icon: History, visible: (permissions) => permissions.can("audit.view") },
       {
         to: "/import-export",
@@ -90,12 +96,20 @@ export function AppShell() {
   const logout = useLogout();
   const notifications = useNotifications({ pageSize: 1 });
 
+  // While a temporary password is in force ProtectedRoute redirects every route back
+  // to /profile. Rendering the nav as if it worked made each click look like a dead
+  // link, so the whole portal appeared broken. Show the lock instead.
+  const locked = Boolean(permissions.user?.forcePasswordChange);
+
   useEffect(() => {
     setDrawerOpen(false);
   }, [location.pathname]);
 
   const groups = useMemo(
-    () => NAV.map((group) => ({ ...group, items: group.items.filter((item) => item.visible(permissions)) })).filter((group) => group.items.length > 0),
+    () =>
+      NAV.map((group) => ({ ...group, items: group.items.filter((item) => item.visible(permissions)) })).filter(
+        (group) => group.items.length > 0
+      ),
     [permissions]
   );
 
@@ -129,24 +143,39 @@ export function AppShell() {
             <ul className="space-y-0.5">
               {group.items.map((item) => (
                 <li key={item.to}>
-                  <NavLink
-                    to={item.to}
-                    end={item.end}
-                    title={collapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        "flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white",
-                        collapsed && "justify-center px-0",
-                        isActive && "bg-brand-red text-white hover:bg-brand-red"
-                      )
-                    }
-                  >
-                    <item.icon className="h-4 w-4 shrink-0" />
-                    {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                    {!collapsed && item.to === "/notifications" && unread > 0 ? (
-                      <span className="ml-auto rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-brand-red">{unread}</span>
-                    ) : null}
-                  </NavLink>
+                  {locked ? (
+                    <span
+                      title="Change your temporary password to unlock the portal"
+                      aria-disabled="true"
+                      className={cn(
+                        "flex h-11 cursor-not-allowed items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-500",
+                        collapsed && "justify-center px-0"
+                      )}
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                      {!collapsed ? <Lock className="ml-auto h-3.5 w-3.5 shrink-0" /> : null}
+                    </span>
+                  ) : (
+                    <NavLink
+                      to={item.to}
+                      end={item.end}
+                      title={collapsed ? item.label : undefined}
+                      className={({ isActive }) =>
+                        cn(
+                          "flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white",
+                          collapsed && "justify-center px-0",
+                          isActive && "bg-brand-red text-white hover:bg-brand-red"
+                        )
+                      }
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" />
+                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                      {!collapsed && item.to === "/notifications" && unread > 0 ? (
+                        <span className="ml-auto rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-brand-red">{unread}</span>
+                      ) : null}
+                    </NavLink>
+                  )}
                 </li>
               ))}
             </ul>
@@ -189,8 +218,11 @@ export function AppShell() {
             <p className="hidden truncate text-xs text-slate-500 sm:block">Quality management system</p>
           </div>
           <NavLink
-            to="/notifications"
-            className="relative grid h-10 w-10 place-items-center rounded-lg text-slate-600 hover:bg-slate-100"
+            to={locked ? "/profile" : "/notifications"}
+            className={cn(
+              "relative grid h-10 w-10 place-items-center rounded-lg text-slate-600",
+              locked ? "cursor-not-allowed opacity-40" : "hover:bg-slate-100"
+            )}
             aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
           >
             <Bell className="h-5 w-5" />
@@ -211,6 +243,18 @@ export function AppShell() {
           </NavLink>
         </header>
 
+        {locked ? (
+          <div className="border-b border-amber-200 bg-amber-50 px-3 py-3 sm:px-6">
+            <div className="flex items-start gap-3">
+              <Lock className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+              <p className="text-sm text-amber-900">
+                <span className="font-bold">The portal is locked until you change your temporary password.</span> Enter your current
+                password and a new one in the form on this page, then select Update password. Every other page stays disabled until that is
+                done.
+              </p>
+            </div>
+          </div>
+        ) : null}
         <div className="flex-1">
           <Outlet />
         </div>

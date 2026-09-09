@@ -42,6 +42,12 @@ export function useChangePassword() {
         body: JSON.stringify(input)
       }),
     onSuccess: async () => {
+      // ProtectedRoute gates every route on this cached flag. Clearing it up front stops
+      // a post-change redirect from being bounced straight back to /profile while the
+      // refetch is still in flight.
+      queryClient.setQueryData<MeResponse>(["auth", "me"], (previous) =>
+        previous ? { ...previous, user: { ...previous.user, forcePasswordChange: false } } : previous
+      );
       await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     }
   });

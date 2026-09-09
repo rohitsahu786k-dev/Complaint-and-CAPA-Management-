@@ -1,6 +1,6 @@
 import { AlertTriangle, KeyRound } from "lucide-react";
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -10,6 +10,7 @@ import { useChangePassword, useCurrentUser } from "@/hooks/useAuth";
 export function ProfilePage() {
   const { data } = useCurrentUser();
   const location = useLocation();
+  const navigate = useNavigate();
   const changePassword = useChangePassword();
   const toast = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
@@ -25,6 +26,13 @@ export function ProfilePage() {
       await changePassword.mutateAsync({ currentPassword, newPassword });
       setCurrentPassword("");
       setNewPassword("");
+      if (passwordChangeRequired) {
+        // The temporary-password gate is now lifted, so take the user straight to the
+        // dashboard rather than leaving them on the page that was blocking them.
+        toast.success("Password updated", "The portal is unlocked. Welcome in.");
+        navigate("/", { replace: true });
+        return;
+      }
       toast.success("Password updated", "Your account password was changed successfully.");
     } catch (error) {
       toast.error("Password change failed", error instanceof Error ? error.message : "Please check the entered values and try again.");
