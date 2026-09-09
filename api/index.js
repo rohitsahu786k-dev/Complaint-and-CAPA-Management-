@@ -2993,6 +2993,11 @@ var AuditLogSchema = new Schema13(
   },
   { timestamps: true }
 );
+AuditLogSchema.index({ createdAt: -1 });
+AuditLogSchema.index({ entityId: 1, createdAt: -1 });
+AuditLogSchema.index({ entity: 1, createdAt: -1 });
+AuditLogSchema.index({ action: 1, createdAt: -1 });
+AuditLogSchema.index({ actor: 1, createdAt: -1 });
 var AuditLog = mongoose14.models.AuditLog || mongoose14.model("AuditLog", AuditLogSchema);
 
 // server/services/audit.service.ts
@@ -3160,6 +3165,23 @@ async function createComplaint(input, user) {
   }
   return doc;
 }
+var COMPLAINT_LIST_FIELDS = [
+  "number",
+  "type",
+  "status",
+  "company",
+  "priority",
+  "category",
+  "subCategory",
+  "customer",
+  "product",
+  "receivedAt",
+  "closedAt",
+  "isRepeat",
+  "owner",
+  "responsibleDept",
+  "description"
+].join(" ");
 async function listComplaints(query, user) {
   const actor = await requireActor(user);
   if (!hasPermission(actor, "view.all") && !hasPermission(actor, "view.company")) {
@@ -3192,7 +3214,7 @@ async function listComplaints(query, user) {
   const sortField = query.sort && /^[a-zA-Z]+$/.test(query.sort) ? query.sort : "receivedAt";
   const sort = { [sortField]: query.order === "asc" ? 1 : -1 };
   const [rows, total] = await Promise.all([
-    Complaint.find(filter).sort(sort).skip((query.page - 1) * query.pageSize).limit(query.pageSize).populate("company", "name code").populate("priority", "name color tatMultiplier").populate("owner", "name username").populate("responsibleDept", "name").lean(),
+    Complaint.find(filter).select(COMPLAINT_LIST_FIELDS).sort(sort).skip((query.page - 1) * query.pageSize).limit(query.pageSize).populate("company", "name code").populate("priority", "name color tatMultiplier").populate("owner", "name username").populate("responsibleDept", "name").lean(),
     Complaint.countDocuments(filter)
   ]);
   return { rows, total };

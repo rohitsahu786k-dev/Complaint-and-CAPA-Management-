@@ -205,6 +205,30 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
 
 /* ------------------------------------------------------------------ querying */
 
+/**
+ * The list and its exports read these fields and nothing else. Returning whole documents
+ * also shipped every 8D investigation field (the five-why chains, fishbone, D3/D5/D6 action
+ * tables, workflow log), which is around 90% of a closed complaint and is never displayed
+ * here. The detail endpoint still returns the complete document.
+ */
+const COMPLAINT_LIST_FIELDS = [
+  "number",
+  "type",
+  "status",
+  "company",
+  "priority",
+  "category",
+  "subCategory",
+  "customer",
+  "product",
+  "receivedAt",
+  "closedAt",
+  "isRepeat",
+  "owner",
+  "responsibleDept",
+  "description"
+].join(" ");
+
 export async function listComplaints(query: ComplaintListQuery, user: ApiUser | undefined) {
   const actor = await requireActor(user);
   if (!hasPermission(actor, "view.all") && !hasPermission(actor, "view.company")) {
@@ -241,6 +265,7 @@ export async function listComplaints(query: ComplaintListQuery, user: ApiUser | 
 
   const [rows, total] = await Promise.all([
     Complaint.find(filter)
+      .select(COMPLAINT_LIST_FIELDS)
       .sort(sort)
       .skip((query.page - 1) * query.pageSize)
       .limit(query.pageSize)
