@@ -5,12 +5,16 @@ import { ProtectedRoute } from "./ProtectedRoute";
 import { LoginPage } from "@/routes/auth/LoginPage";
 import { ForgotPasswordPage } from "@/routes/auth/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/routes/auth/ResetPasswordPage";
-import { DashboardPage } from "@/routes/app/DashboardPage";
 import { ProfilePage } from "@/routes/app/ProfilePage";
 import { UnauthorizedPage } from "@/routes/app/UnauthorizedPage";
 import { NotFoundPage } from "@/routes/app/NotFoundPage";
 import { Spinner } from "@/components/ui/Field";
 
+// Lazy like every other route. This was the only eager page that reaches Recharts, which
+// put the whole charting stack in the bundle served to anyone sitting on the login screen.
+const DashboardPage = lazy(() =>
+  import("@/routes/app/DashboardPage").then((m) => ({ default: m.DashboardPage }))
+);
 const ComplaintsListPage = lazy(() =>
   import("@/routes/complaints/ComplaintsListPage").then((m) => ({ default: m.ComplaintsListPage }))
 );
@@ -75,7 +79,14 @@ export const router = createBrowserRouter([
       {
         element: <AppShell />,
         children: [
-          { index: true, element: <DashboardPage /> },
+          {
+            index: true,
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <DashboardPage />
+              </Suspense>
+            )
+          },
           {
             path: "complaints",
             element: (

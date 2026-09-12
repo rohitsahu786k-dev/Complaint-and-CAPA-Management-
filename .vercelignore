@@ -1,0 +1,31 @@
+# Everything Vercel neither builds nor ships. Each entry is dead weight in the
+# deployment snapshot that Vercel keeps for the life of the deployment.
+
+# Local build artefacts -- Vercel rebuilds these itself.
+dist
+node_modules
+coverage
+*.tsbuildinfo
+.vercel
+
+# Docs and phase reports: never imported by the app.
+docs
+*.md
+
+# CI config and local tooling caches.
+.github
+.playwright-cli
+scripts
+server/scripts
+
+# Tests and fixtures run in CI, never in the serverless function.
+**/*.test.ts
+**/*.test.tsx
+vitest.config.ts
+eslint.config.js
+.prettierrc.json
+
+# Env files are configured in Vercel Project Settings, never uploaded.
+.env
+.env.*
+!.env.example

@@ -23,7 +23,7 @@ import { useToast } from "@/components/ui/toast-context";
 import { api, ApiError } from "@/lib/api";
 import { downloadWorkbook } from "@/lib/excel";
 import { formatDate, formatDateTime, statusTone, tatLabel, tatTone } from "@/lib/format";
-import { generateComplaintPdf, type PdfCapa, type PdfComplaint } from "@/lib/pdf";
+import type { PdfCapa, PdfComplaint } from "@/lib/pdf";
 import {
   issuesFrom,
   useApiMutation,
@@ -173,6 +173,8 @@ export function ComplaintDetailPage() {
       const response = await api<{ complaint: PdfComplaint; capas: PdfCapa[] }>(
         `/api/reports/complaint/${complaint?._id}/8d`
       );
+      // jsPDF is ~350 kB and only ever runs behind this button, so it loads on demand.
+      const { generateComplaintPdf } = await import("@/lib/pdf");
       generateComplaintPdf(response.complaint, response.capas);
       toast.success("PDF generated and download started");
     } catch (error) {

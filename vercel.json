@@ -1,4 +1,11 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)*.md' ':(exclude)docs/**' ':(exclude).github/**'",
+  "git": {
+    "deploymentEnabled": {
+      "fix/phase-compliance-hardening-20260908": false
+    }
+  },
   "crons": [
     {
       "path": "/api/cron/reminders",
