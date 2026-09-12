@@ -11,6 +11,7 @@
     "build": "tsc -b && vite build && npm run build:api",
     "test": "vitest run",
     "security:scan": "node scripts/secret-scan.mjs",
+    "vercel:prune": "node scripts/prune-vercel-deployments.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "seed": "tsx server/scripts/seed.ts",
     "format": "prettier --write \"**/*.{ts,tsx,json,css,md}\"",
