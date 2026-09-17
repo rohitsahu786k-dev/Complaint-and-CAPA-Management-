@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/toast-context";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { downloadSheet } from "@/lib/excel";
 import {
   useMasterBootstrap,
@@ -76,8 +76,7 @@ export function ReportsPage() {
       downloadSheet(report.title.replace(/\s+/g, "_"), "Report", res.rows);
       toast.success(`Exported ${res.rows.length} rows to Excel`);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Failed to export report";
-      toast.error(msg);
+      toast.failure(err, "Failed to export report");
     } finally {
       setIsExporting(false);
     }

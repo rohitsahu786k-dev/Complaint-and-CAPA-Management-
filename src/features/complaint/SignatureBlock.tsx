@@ -6,8 +6,8 @@ import { Field, Textarea } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
-import { ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
+import { errorText } from "@/lib/errors";
 import {
   useApiMutation,
   usePermissions,
@@ -63,9 +63,8 @@ export function SignatureBlock({
       setSignModalRole(null);
       setSignNotes("");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to sign";
-      setErrorMessage(message);
-      toast.error(message);
+      setErrorMessage(errorText(error, "Failed to sign"));
+      toast.failure(error, "Failed to sign");
     }
   }
 
@@ -82,9 +81,8 @@ export function SignatureBlock({
       setRevokeModalRole(null);
       setRevokeReason("");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to revoke signature";
-      setErrorMessage(message);
-      toast.error(message);
+      setErrorMessage(errorText(error, "Failed to revoke signature"));
+      toast.failure(error, "Failed to revoke signature");
     }
   }
 

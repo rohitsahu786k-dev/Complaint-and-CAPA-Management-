@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { cn } from "@/lib/cn";
+import { describeError } from "@/lib/errors";
 import { ToastContext, type ToastContextValue, type ToastMessage, type ToastTone } from "./toast-context";
 
 const toneStyles: Record<ToastTone, { wrapper: string; icon: typeof Info }> = {
@@ -18,7 +19,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     (toast: Omit<ToastMessage, "id">) => {
       const id = Date.now() + Math.random();
       setToasts((current) => [...current, { ...toast, id }]);
-      window.setTimeout(() => dismiss(id), 6000);
+      // A failure usually carries the field that blocked the save; six seconds is not
+      // long enough to read one before it disappears.
+      window.setTimeout(() => dismiss(id), toast.tone === 'error' ? 12000 : 6000);
     },
     [dismiss]
   );
@@ -27,7 +30,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     () => ({
       push,
       success: (title, description) => push({ tone: "success", title, description }),
-      error: (title, description) => push({ tone: "error", title, description })
+      error: (title, description) => push({ tone: "error", title, description }),
+      failure: (error, fallback) => {
+        const detail = describeError(error, fallback);
+        push({ tone: "error", title: detail.title, description: detail.description });
+      }
     }),
     [push]
   );

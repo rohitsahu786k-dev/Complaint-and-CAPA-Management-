@@ -70,7 +70,7 @@ export function InternalTab({ complaint, canEdit }: { complaint: ComplaintDetail
       toast.success("Investigation saved", "Every change is recorded in the audit trail.");
     } catch (error) {
       if (error instanceof ApiError) setIssues(error.issues);
-      toast.error("The investigation could not be saved", error instanceof Error ? error.message : "Try again.");
+      toast.failure(error, "The investigation could not be saved");
     }
   }
 

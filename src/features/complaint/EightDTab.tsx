@@ -160,7 +160,7 @@ export function EightDTab({
       toast.success("8D report saved", "Every change is recorded in the audit trail.");
     } catch (error) {
       if (error instanceof ApiError) setIssues(error.issues);
-      toast.error("The 8D report could not be saved", error instanceof Error ? error.message : "Try again.");
+      toast.failure(error, "The 8D report could not be saved");
     }
   }
 

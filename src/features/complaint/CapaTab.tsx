@@ -108,7 +108,7 @@ export function CapaTab({ complaint, capas, canEdit }: { complaint: ComplaintDet
       }
     } catch (error) {
       if (error instanceof ApiError) setIssues(error.issues);
-      toast.error("The CAPA could not be saved", error instanceof Error ? error.message : "Check the form and try again.");
+      toast.failure(error, "The CAPA could not be saved");
     }
   }
 
@@ -343,7 +343,7 @@ function EvidencePanel({ capa, complaint, onClose }: { capa: CapaItem; complaint
       setRemarks("");
     } catch (error) {
       if (error instanceof ApiError) setIssues(error.issues);
-      toast.error("The review could not be recorded", error instanceof Error ? error.message : "Try again.");
+      toast.failure(error, "The review could not be recorded");
     }
   }
 

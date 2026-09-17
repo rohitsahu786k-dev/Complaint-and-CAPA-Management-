@@ -178,8 +178,7 @@ export function ComplaintDetailPage() {
       generateComplaintPdf(response.complaint, response.capas);
       toast.success("PDF generated and download started");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to generate 8D PDF";
-      toast.error(message);
+      toast.failure(error, "Failed to generate 8D PDF");
     } finally {
       setDownloadingPdf(false);
     }
@@ -197,8 +196,7 @@ export function ComplaintDetailPage() {
       );
       toast.success("8D Excel workbook exported");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to export 8D Excel";
-      toast.error(message);
+      toast.failure(error, "Failed to export 8D Excel");
     } finally {
       setDownloadingExcel(false);
     }
@@ -232,7 +230,7 @@ export function ComplaintDetailPage() {
       } else {
         setCloseError("Failed to close complaint due to validation requirements.");
       }
-      toast.error("Complaint closure blocked by audit rules");
+      toast.failure(error, "Complaint closure blocked by audit rules");
     }
   }
 
@@ -247,8 +245,7 @@ export function ComplaintDetailPage() {
       setShowReopenModal(false);
       setReopenReason("");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to reopen complaint";
-      toast.error(message);
+      toast.failure(error, "Failed to reopen complaint");
     }
   }
 
@@ -258,8 +255,7 @@ export function ComplaintDetailPage() {
       toast.success(`Complaint ${complaint?.number} permanently deleted`);
       navigate("/complaints");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to delete complaint";
-      toast.error(message);
+      toast.failure(error, "Failed to delete complaint");
     }
   }
 

@@ -117,7 +117,7 @@ export function WorkflowPanel({
       } else {
         setGeneralError("Failed to advance stage");
       }
-      toast.error("Stage completion blocked by validation requirements");
+      toast.failure(error, "Stage completion blocked by validation requirements");
     }
   }
 

@@ -21,7 +21,7 @@ import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
-import { ApiError } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 import { downloadSheet } from "@/lib/excel";
 import { formatDate, formatNumber, statusTone } from "@/lib/format";
 import {
@@ -122,9 +122,8 @@ export function RepeatAnalysisPage() {
       setReviewTarget(null);
       setReviewRemarks("");
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Failed to record repeat review";
-      setReviewError(msg);
-      toast.error(msg);
+      setReviewError(errorText(err, "Failed to record repeat review"));
+      toast.failure(err, "Failed to record repeat review");
     }
   }
 

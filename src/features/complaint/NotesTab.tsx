@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
-import { ApiError } from "@/lib/api";
 import { downloadSheet } from "@/lib/excel";
 import { formatDate, formatDateTime } from "@/lib/format";
 import {
@@ -70,8 +69,7 @@ export function NotesTab({
       setReferenceDate("");
       setKind("Note");
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to add note";
-      toast.error(message);
+      toast.failure(error, "Failed to add note");
     }
   }
 
@@ -82,8 +80,7 @@ export function NotesTab({
       toast.success("Note deleted");
       setDeleteTarget(null);
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to delete note";
-      toast.error(message);
+      toast.failure(error, "Failed to delete note");
     }
   }
 

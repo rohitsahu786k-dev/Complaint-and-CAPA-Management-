@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
-import { ApiError } from "@/lib/api";
 import { formatDate, formatDateTime, statusTone } from "@/lib/format";
 import {
   useApiMutation,
@@ -117,8 +116,7 @@ export function EffectivenessTab({
       setSelectedCapa(null);
       setShowCapaReopenWarning(false);
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to verify CAPA";
-      toast.error(message);
+      toast.failure(error, "Failed to verify CAPA");
     }
   }
 
@@ -144,9 +142,7 @@ export function EffectivenessTab({
       );
       setShowOverallReopenWarning(false);
     } catch (error) {
-      const message =
-        error instanceof ApiError ? error.message : "Failed to record overall effectiveness";
-      toast.error(message);
+      toast.failure(error, "Failed to record overall effectiveness");
     }
   }
 

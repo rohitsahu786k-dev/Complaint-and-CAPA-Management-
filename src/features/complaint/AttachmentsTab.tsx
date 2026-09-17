@@ -5,7 +5,6 @@ import { SectionCard } from "@/components/ui/Cards";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DataTable } from "@/components/ui/DataTable";
 import { useToast } from "@/components/ui/toast-context";
-import { ApiError } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import {
   useApiMutation,
@@ -68,8 +67,7 @@ export function AttachmentsTab({
       toast.success(`Removed ${deleteTarget.originalFilename}`);
       setDeleteTarget(null);
     } catch (error) {
-      const message = error instanceof ApiError ? error.message : "Failed to delete attachment";
-      toast.error(message);
+      toast.failure(error, "Failed to delete attachment");
     }
   }
 

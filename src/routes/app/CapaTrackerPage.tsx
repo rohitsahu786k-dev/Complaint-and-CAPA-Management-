@@ -19,8 +19,8 @@ import { Modal } from "@/components/ui/Modal";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
-import { ApiError } from "@/lib/api";
 import { downloadSheet } from "@/lib/excel";
+import { errorText } from "@/lib/errors";
 import { formatDate, statusTone } from "@/lib/format";
 import {
   useApiMutation,
@@ -104,9 +104,8 @@ export function CapaTrackerPage() {
       setReviewTarget(null);
       setReviewRemarks("");
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Failed to record evidence review";
-      setReviewError(msg);
-      toast.error(msg);
+      setReviewError(errorText(err, "Failed to record evidence review"));
+      toast.failure(err, "Failed to record evidence review");
     }
   }
 

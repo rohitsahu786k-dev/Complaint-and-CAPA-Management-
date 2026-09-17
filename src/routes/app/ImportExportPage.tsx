@@ -15,7 +15,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { Field, Select } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/toast-context";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { downloadSheet, downloadTemplate, readSheet } from "@/lib/excel";
 import { formatDate } from "@/lib/format";
 import { usePermissions } from "@/services/queries";
@@ -111,8 +111,8 @@ export function ImportExportPage() {
       }
       downloadTemplate("Complaint_Import_Template.xlsx", res.columns, res.sample);
       toast.success("Import template downloaded");
-    } catch {
-      toast.error("Failed to load import template");
+    } catch (error) {
+      toast.failure(error, "Failed to load import template");
     }
   }
 
@@ -142,8 +142,7 @@ export function ImportExportPage() {
       setPreviewData(preview);
       toast.success(`Parsed ${rows.length} rows: ${preview.validRows} valid, ${preview.invalidRows} invalid.`);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Failed to parse file";
-      toast.error(msg);
+      toast.failure(err, "Failed to parse file");
       setFile(null);
       setParsedRows([]);
     } finally {
@@ -162,8 +161,7 @@ export function ImportExportPage() {
       setCommitResult(res);
       toast.success(`Import complete! ${res.created} complaints registered, ${res.skipped} skipped.`);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : "Import failed";
-      toast.error(msg);
+      toast.failure(err, "Import failed");
     } finally {
       setIsCommitting(false);
     }
@@ -192,8 +190,8 @@ export function ImportExportPage() {
       }));
       downloadSheet("All-Complaints-Export", "Complaints", flattened);
       toast.success(`Exported ${flattened.length} complaints to Excel`);
-    } catch {
-      toast.error("Failed to export complaints");
+    } catch (error) {
+      toast.failure(error, "Failed to export complaints");
     } finally {
       setIsExportingEntity(null);
     }
@@ -219,8 +217,8 @@ export function ImportExportPage() {
       }));
       downloadSheet("All-CAPAs-Export", "CAPAs", flattened);
       toast.success(`Exported ${flattened.length} CAPA actions to Excel`);
-    } catch {
-      toast.error("Failed to export CAPAs");
+    } catch (error) {
+      toast.failure(error, "Failed to export CAPAs");
     } finally {
       setIsExportingEntity(null);
     }
@@ -238,8 +236,8 @@ export function ImportExportPage() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Operational database backup downloaded successfully");
-    } catch {
-      toast.error("Failed to generate database backup");
+    } catch (error) {
+      toast.failure(error, "Failed to generate database backup");
     } finally {
       setIsBackingUp(false);
     }

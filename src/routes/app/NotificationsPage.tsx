@@ -46,8 +46,8 @@ export function NotificationsPage() {
     try {
       await markAllRead.mutateAsync(undefined);
       toast.success("All notifications marked as read");
-    } catch {
-      toast.error("Failed to update notifications");
+    } catch (error) {
+      toast.failure(error, "Failed to update notifications");
     }
   }
 

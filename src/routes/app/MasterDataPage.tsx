@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, ROLE_NAMES } from "@shared/constants/permissions";
+import { passwordSchema } from "@shared/schemas/auth";
 import {
   Building2,
   CheckCircle2,
@@ -31,7 +32,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Toggle } from "@/components/ui/Toggle";
 import { useToast } from "@/components/ui/toast-context";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useConfiguration, useMasterBootstrap, usePermissions, useSystemUsers } from "@/services/queries";
 
@@ -159,9 +160,6 @@ const TABS: { key: MasterTab; label: string; icon: typeof Building2 }[] = [
   { key: "numbering", label: "Numbering", icon: FileKey2 }
 ];
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof ApiError || error instanceof Error ? error.message : fallback;
-}
 
 
 /** Edit / activate / delete, rendered the same way beside every master record. */
@@ -396,7 +394,7 @@ export function MasterDataPage() {
       toast.success(success);
       after?.();
     } catch (error) {
-      toast.error(errorMessage(error, "The requested change could not be saved."));
+      toast.failure(error, "The requested change could not be saved.");
     } finally {
       setSaving(false);
     }
@@ -444,14 +442,22 @@ export function MasterDataPage() {
   }
 
   async function handleUserSubmit() {
-    if (!userForm.name || !userForm.username || !userForm.password || !userForm.role) return toast.error("Name, username, temporary password and role are required.");
-    if (userForm.password.length < 8) return toast.error("Temporary password must contain at least 8 characters.");
+    if (!userForm.name || !userForm.username || !userForm.password || !userForm.role) {
+      return toast.error("Name, username, temporary password and role are required.");
+    }
+    // Mirror the server's password rule so the reason is immediate rather than a round trip.
+    const password = passwordSchema.safeParse(userForm.password);
+    if (!password.success) return toast.error("Temporary password is not strong enough", password.error.issues[0]?.message);
+
+    // department is an optional ObjectId server-side, and "" fails that check. Spreading
+    // userForm put the empty string in the body regardless, so creating a user with no
+    // department always came back as a bare "Validation failed".
+    const { department, ...rest } = userForm;
     const body = {
-      ...userForm,
-      companyIds: userForm.companyIds,
+      ...rest,
       active: true,
       forcePasswordChange: true,
-      ...(userForm.department ? { department: userForm.department } : {})
+      ...(department ? { department } : {})
     };
     await run(() => api("/api/master/users", { method: "POST", body: JSON.stringify(body) }), "User account created", () => {
       setUserModal(false);

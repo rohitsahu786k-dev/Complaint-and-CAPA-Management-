@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["server/**/*.test.ts", "shared/**/*.test.ts"]
+    // Front-end helpers that hold real logic are tested too; they stay DOM-free.
+    include: ["server/**/*.test.ts", "shared/**/*.test.ts", "src/**/*.test.ts"]
   }
 });
