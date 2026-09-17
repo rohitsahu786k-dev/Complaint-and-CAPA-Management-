@@ -5,12 +5,16 @@ import { companyCreateSchema, departmentCreateSchema, employeeCreateSchema, perm
 import { connectDB } from "../config/db";
 import { getEnv } from "../config/env";
 import { requirePermission, requireUser } from "../middleware/auth";
+import { AuditLog } from "../models/AuditLog";
+import { Capa } from "../models/Capa";
 import { Company } from "../models/Company";
+import { Complaint } from "../models/Complaint";
 import { Department } from "../models/Department";
 import { Employee } from "../models/Employee";
 import { Role } from "../models/Role";
 import { User } from "../models/User";
 import { writeAudit } from "../services/audit.service";
+import { assertDeletable } from "../services/master-delete.service";
 import { sendTemplatedEmail } from "../services/email.service";
 import { asyncHandler } from "../utils/async-handler";
 import { randomToken, sha256 } from "../utils/crypto";
@@ -177,5 +181,91 @@ masterAdminRouter.post(
 
     await writeAudit({ actor: req.user, action: "UPDATE", entity: "User", entityId: req.params.id, after: { accessReset: true, emailStatus } });
     return ok(res, { reset: true, emailed, emailStatus, hasEmail: Boolean(user.email) });
+  })
+);
+/* ------------------------------------------------------------------ deletion of master records */
+
+masterAdminRouter.delete(
+  "/companies/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const company = await Company.findById(req.params.id).lean();
+    if (!company) throw httpError(404, "Company not found");
+    await assertDeletable("This company", [
+      { label: "complaints", count: Complaint.countDocuments({ company: company._id }) },
+      { label: "CAPA actions", count: Capa.countDocuments({ company: company._id }) },
+      { label: "employees", count: Employee.countDocuments({ company: company._id }) },
+      { label: "users", count: User.countDocuments({ companyIds: company._id }) }
+    ]);
+    await Company.deleteOne({ _id: company._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Company", entityId: req.params.id, before: company });
+    return ok(res, { deleted: true });
+  })
+);
+
+masterAdminRouter.delete(
+  "/departments/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const department = await Department.findById(req.params.id).lean();
+    if (!department) throw httpError(404, "Department not found");
+    await assertDeletable("This department", [
+      {
+        label: "complaints",
+        count: Complaint.countDocuments({
+          $or: [{ responsibleDept: department._id }, { internalDept: department._id }, { againstDept: department._id }]
+        })
+      },
+      { label: "CAPA actions", count: Capa.countDocuments({ department: department._id }) },
+      { label: "employees", count: Employee.countDocuments({ department: department._id }) },
+      { label: "users", count: User.countDocuments({ department: department._id }) }
+    ]);
+    await Department.deleteOne({ _id: department._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Department", entityId: req.params.id, before: department });
+    return ok(res, { deleted: true });
+  })
+);
+
+masterAdminRouter.delete(
+  "/employees/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const employee = await Employee.findById(req.params.id).lean();
+    if (!employee) throw httpError(404, "Employee not found");
+    await assertDeletable("This employee", [
+      { label: "portal users", count: User.countDocuments({ employee: employee._id }) },
+      { label: "complaints", count: Complaint.countDocuments({ respEmployee: employee._id }) }
+    ]);
+    await Employee.deleteOne({ _id: employee._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Employee", entityId: req.params.id, before: employee });
+    return ok(res, { deleted: true });
+  })
+);
+
+/**
+ * A user is never deleted once they have touched a record: the audit trail, every
+ * workflow entry and every ownership field names them, and a signature that resolves
+ * to nothing is worse than a deactivated account.
+ */
+masterAdminRouter.delete(
+  "/users/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const user = await User.findById(req.params.id).lean();
+    if (!user) throw httpError(404, "User not found");
+    if (String(user._id) === req.user?.id) throw httpError(422, "You cannot delete the account you are signed in with.");
+    await assertDeletable("This user", [
+      { label: "complaints they own or raised", count: Complaint.countDocuments({ $or: [{ owner: user._id }, { createdBy: user._id }] }) },
+      { label: "CAPA actions they own", count: Capa.countDocuments({ owner: user._id }) },
+      { label: "audit entries", count: AuditLog.countDocuments({ actor: user._id }) },
+      { label: "employee records", count: Employee.countDocuments({ linkedUser: user._id }) }
+    ]);
+    await User.deleteOne({ _id: user._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "User", entityId: req.params.id, before: { username: user.username, name: user.name } });
+    return ok(res, { deleted: true });
   })
 );

@@ -12,10 +12,13 @@ import {
 } from "@shared/schemas/configuration";
 import { connectDB } from "../config/db";
 import { requirePermission, requireUser } from "../middleware/auth";
+import { Capa } from "../models/Capa";
+import { Complaint } from "../models/Complaint";
 import { EscalationConfiguration, NumberingConfiguration, TATConfiguration } from "../models/configuration";
 import { Category, DelayReason, Priority, RootCauseCategory } from "../models/masters";
 import { resolveEscalation, resolveTatConfig } from "../services/config.service";
 import { writeAudit } from "../services/audit.service";
+import { assertDeletable } from "../services/master-delete.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
 
@@ -190,5 +193,66 @@ configurationRouter.patch(
     const priority = await Priority.findByIdAndUpdate(params.id, input, { new: true });
     await writeAudit({ actor: req.user, action: "MASTER_DATA_CHANGE", entity: "Priority", entityId: params.id, before, after: input });
     return ok(res, { priority });
+  })
+);
+/* ------------------------------------------------------------------ deletion of list masters */
+
+/**
+ * A priority is stored on a complaint as a reference and is required there, so deleting
+ * one that is in use would leave those complaints unreadable.
+ */
+configurationRouter.delete(
+  "/priorities/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const params = z.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const priority = await Priority.findById(params.id).lean();
+    if (!priority) throw httpError(404, "Priority not found");
+    await assertDeletable("This priority", [
+      { label: "complaints", count: Complaint.countDocuments({ priority: priority._id }) },
+      { label: "CAPA actions", count: Capa.countDocuments({ priority: priority._id }) }
+    ]);
+    await Priority.deleteOne({ _id: priority._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Priority", entityId: params.id, before: priority });
+    return ok(res, { deleted: true });
+  })
+);
+
+/**
+ * Complaints keep their category as text rather than a reference, so removing one leaves
+ * existing records readable - it only retires the option. Sub-categories do point back by
+ * reference, so a parent still holding children is refused.
+ */
+configurationRouter.delete(
+  "/categories/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const params = z.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const category = await Category.findById(params.id).lean();
+    if (!category) throw httpError(404, "Category not found");
+    await assertDeletable("This category", [{ label: "sub-categories", count: Category.countDocuments({ parent: category._id }) }]);
+    await Category.deleteOne({ _id: category._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Category", entityId: params.id, before: category });
+    return ok(res, { deleted: true });
+  })
+);
+
+/** Delay reasons and root cause categories are recorded as text on the record they explain. */
+configurationRouter.delete(
+  "/lists/:list/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const key = req.params.list as ListKey;
+    const model = listModels[key];
+    if (!model) throw httpError(404, "Unknown configuration list");
+    const params = z.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const before = await model.findById(params.id).lean();
+    if (!before) throw httpError(404, "Item not found");
+    await model.deleteOne({ _id: params.id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: key, entityId: params.id, before });
+    return ok(res, { deleted: true });
   })
 );

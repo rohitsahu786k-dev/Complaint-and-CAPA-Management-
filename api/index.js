@@ -6042,6 +6042,18 @@ var prioritySchema = simpleListItemSchema.extend({
   tatMultiplier: z11.number().min(0.1).max(10)
 });
 
+// server/services/master-delete.service.ts
+async function assertDeletable(what, checks) {
+  const resolved = await Promise.all(checks.map(async (check) => ({ label: check.label, count: await check.count })));
+  const blocking = resolved.filter((entry) => entry.count > 0);
+  if (blocking.length === 0) return;
+  const detail = blocking.map((entry) => `${entry.count} ${entry.label}`).join(", ");
+  throw businessRuleError(
+    `${what} is still used by ${detail}. Deactivate it instead - deleting it would leave those records without their ${what.toLowerCase()}.`,
+    blocking.map((entry) => ({ field: entry.label, message: `${entry.count} ${entry.label} still reference this record` }))
+  );
+}
+
 // server/routes/configuration.routes.ts
 var configurationRouter = Router7();
 configurationRouter.use(requireUser);
@@ -6198,6 +6210,53 @@ configurationRouter.patch(
     const priority = await Priority.findByIdAndUpdate(params.id, input, { new: true });
     await writeAudit({ actor: req.user, action: "MASTER_DATA_CHANGE", entity: "Priority", entityId: params.id, before, after: input });
     return ok(res, { priority });
+  })
+);
+configurationRouter.delete(
+  "/priorities/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const priority = await Priority.findById(params.id).lean();
+    if (!priority) throw httpError(404, "Priority not found");
+    await assertDeletable("This priority", [
+      { label: "complaints", count: Complaint.countDocuments({ priority: priority._id }) },
+      { label: "CAPA actions", count: Capa.countDocuments({ priority: priority._id }) }
+    ]);
+    await Priority.deleteOne({ _id: priority._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Priority", entityId: params.id, before: priority });
+    return ok(res, { deleted: true });
+  })
+);
+configurationRouter.delete(
+  "/categories/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const category = await Category.findById(params.id).lean();
+    if (!category) throw httpError(404, "Category not found");
+    await assertDeletable("This category", [{ label: "sub-categories", count: Category.countDocuments({ parent: category._id }) }]);
+    await Category.deleteOne({ _id: category._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Category", entityId: params.id, before: category });
+    return ok(res, { deleted: true });
+  })
+);
+configurationRouter.delete(
+  "/lists/:list/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    const key = req.params.list;
+    const model = listModels[key];
+    if (!model) throw httpError(404, "Unknown configuration list");
+    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    await connectDB();
+    const before = await model.findById(params.id).lean();
+    if (!before) throw httpError(404, "Item not found");
+    await model.deleteOne({ _id: params.id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: key, entityId: params.id, before });
+    return ok(res, { deleted: true });
   })
 );
 
@@ -7421,6 +7480,82 @@ masterAdminRouter.post(
     }
     await writeAudit({ actor: req.user, action: "UPDATE", entity: "User", entityId: req.params.id, after: { accessReset: true, emailStatus } });
     return ok(res, { reset: true, emailed, emailStatus, hasEmail: Boolean(user.email) });
+  })
+);
+masterAdminRouter.delete(
+  "/companies/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const company = await Company.findById(req.params.id).lean();
+    if (!company) throw httpError(404, "Company not found");
+    await assertDeletable("This company", [
+      { label: "complaints", count: Complaint.countDocuments({ company: company._id }) },
+      { label: "CAPA actions", count: Capa.countDocuments({ company: company._id }) },
+      { label: "employees", count: Employee.countDocuments({ company: company._id }) },
+      { label: "users", count: User.countDocuments({ companyIds: company._id }) }
+    ]);
+    await Company.deleteOne({ _id: company._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Company", entityId: req.params.id, before: company });
+    return ok(res, { deleted: true });
+  })
+);
+masterAdminRouter.delete(
+  "/departments/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const department = await Department.findById(req.params.id).lean();
+    if (!department) throw httpError(404, "Department not found");
+    await assertDeletable("This department", [
+      {
+        label: "complaints",
+        count: Complaint.countDocuments({
+          $or: [{ responsibleDept: department._id }, { internalDept: department._id }, { againstDept: department._id }]
+        })
+      },
+      { label: "CAPA actions", count: Capa.countDocuments({ department: department._id }) },
+      { label: "employees", count: Employee.countDocuments({ department: department._id }) },
+      { label: "users", count: User.countDocuments({ department: department._id }) }
+    ]);
+    await Department.deleteOne({ _id: department._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Department", entityId: req.params.id, before: department });
+    return ok(res, { deleted: true });
+  })
+);
+masterAdminRouter.delete(
+  "/employees/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const employee = await Employee.findById(req.params.id).lean();
+    if (!employee) throw httpError(404, "Employee not found");
+    await assertDeletable("This employee", [
+      { label: "portal users", count: User.countDocuments({ employee: employee._id }) },
+      { label: "complaints", count: Complaint.countDocuments({ respEmployee: employee._id }) }
+    ]);
+    await Employee.deleteOne({ _id: employee._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "Employee", entityId: req.params.id, before: employee });
+    return ok(res, { deleted: true });
+  })
+);
+masterAdminRouter.delete(
+  "/users/:id",
+  requirePermission("*"),
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    const user = await User.findById(req.params.id).lean();
+    if (!user) throw httpError(404, "User not found");
+    if (String(user._id) === req.user?.id) throw httpError(422, "You cannot delete the account you are signed in with.");
+    await assertDeletable("This user", [
+      { label: "complaints they own or raised", count: Complaint.countDocuments({ $or: [{ owner: user._id }, { createdBy: user._id }] }) },
+      { label: "CAPA actions they own", count: Capa.countDocuments({ owner: user._id }) },
+      { label: "audit entries", count: AuditLog.countDocuments({ actor: user._id }) },
+      { label: "employee records", count: Employee.countDocuments({ linkedUser: user._id }) }
+    ]);
+    await User.deleteOne({ _id: user._id });
+    await writeAudit({ actor: req.user, action: "DELETE", entity: "User", entityId: req.params.id, before: { username: user.username, name: user.name } });
+    return ok(res, { deleted: true });
   })
 );
 
