@@ -9,19 +9,56 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useLogin } from "@/hooks/useAuth";
 
+// Only the username is kept. The password stays with the browser's own password manager
+// (see autoComplete below) - persisting a credential for a regulated CAPA system would
+// leave a plaintext secret in reach of any script on the page.
+const REMEMBERED_USERNAME_KEY = "onepws.rememberedUsername";
+
+function readRememberedUsername() {
+  // Private-mode and blocked-site-data browsers throw on access rather than return null.
+  try {
+    return window.localStorage.getItem(REMEMBERED_USERNAME_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeRememberedUsername(username: string | null) {
+  try {
+    if (username) window.localStorage.setItem(REMEMBERED_USERNAME_KEY, username);
+    else window.localStorage.removeItem(REMEMBERED_USERNAME_KEY);
+  } catch {
+    // A browser that refuses storage just means no pre-fill next time.
+  }
+}
+
 export function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberedUsername] = useState(readRememberedUsername);
+  const [remember, setRemember] = useState(() => Boolean(rememberedUsername));
   const navigate = useNavigate();
   const location = useLocation();
   const login = useLogin();
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/";
-  const form = useForm<LoginInput>({ resolver: zodResolver(loginSchema), defaultValues: { username: "", password: "" } });
+  const form = useForm<LoginInput>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: { username: rememberedUsername, password: "" }
+  });
+
+  // Unchecking forgets straight away rather than waiting for the next successful sign-in,
+  // so someone stepping away from a shared machine is not left pre-filled.
+  function forgetOrRemember(next: boolean) {
+    setRemember(next);
+    if (!next) writeRememberedUsername(null);
+  }
 
   async function onSubmit(input: LoginInput) {
     // A rejected sign-in is already surfaced through login.error below; letting it
     // escape react-hook-form's handler only produced an unhandled promise rejection.
     try {
       const result = await login.mutateAsync(input);
+      // Store the schema-normalised username so the pre-fill matches what the server accepted.
+      writeRememberedUsername(remember ? input.username : null);
       if (result.user.forcePasswordChange) {
         navigate("/profile", { replace: true, state: { passwordChangeRequired: true } });
         return;
@@ -72,6 +109,10 @@ export function LoginPage() {
               : form.formState.errors.username?.message || form.formState.errors.password?.message}
           </div>
         ) : null}
+        <label className="mt-4 flex cursor-pointer items-center gap-2 text-sm font-semibold text-slate-700">
+          <input type="checkbox" checked={remember} onChange={(event) => forgetOrRemember(event.target.checked)} />
+          Remember my username
+        </label>
         <Button className="mt-6 w-full" disabled={login.isPending}>
           <LogIn className="h-4 w-4" />
           {login.isPending ? "Signing in..." : "Sign in"}
