@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
   CheckCircle2,
@@ -31,12 +32,48 @@ type PreviewResult = {
     row: number;
     valid: boolean;
     duplicate: boolean;
+    duplicateOf: string[];
     type: string;
+    companyCode: string;
     customer: string;
-    product: string;
     category: string;
+    receivedAt: string;
+    description: string;
   }[];
 };
+
+/** Live master data the sheet has to match, served alongside the template. */
+type ImportReference = {
+  columns: string[];
+  companyCodes: { code: string; name: string }[];
+  priorities: string[];
+  departments: string[];
+  categories: { name: string; complaintType: string }[];
+  sample: Record<string, string>;
+};
+
+/**
+ * The accepted spellings for one master-data column. A rejected row names its column,
+ * and this is where the reader finds the value to put there.
+ */
+function ReferenceList({ label, values, empty }: { label: string; values: string[]; empty: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+      <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{label}</p>
+      {values.length === 0 ? (
+        <p className="mt-2 text-xs font-semibold text-amber-700">{empty}</p>
+      ) : (
+        <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto">
+          {values.map((value) => (
+            <li key={value} className="font-mono text-[11px] text-slate-700">
+              {value}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 export function ImportExportPage() {
   const toast = useToast();
@@ -58,9 +95,20 @@ export function ImportExportPage() {
   // Backup state
   const [isBackingUp, setIsBackingUp] = useState(false);
 
+  // The master data a row has to match. Shown on screen so a rejected Company Code,
+  // Priority or Department can be corrected without guessing at the accepted spelling.
+  const reference = useQuery({
+    queryKey: ["import", "reference"],
+    queryFn: () => api<ImportReference>("/api/import/template")
+  });
+
   async function handleDownloadTemplate() {
     try {
-      const res = await api<{ columns: string[]; sample: Record<string, string> }>("/api/import/template");
+      const res = reference.data ?? (await api<ImportReference>("/api/import/template"));
+      if (res.companyCodes.length === 0) {
+        toast.error("No company is set up for your account yet. Add one under Master Data first.");
+        return;
+      }
       downloadTemplate("Complaint_Import_Template.xlsx", res.columns, res.sample);
       toast.success("Import template downloaded");
     } catch {
@@ -287,8 +335,30 @@ export function ImportExportPage() {
               }
             >
               <p className="text-xs text-slate-500">
-                Ensure all required fields (Company Code, Received Date, Priority, Category, Description) match system master data before uploading.
+                The sample row is filled from this portal&apos;s own master data, so the values it carries are
+                already accepted. Dates are read as <span className="font-mono font-semibold">YYYY-MM-DD</span> or
+                from a real Excel date cell.
               </p>
+
+              {reference.data && (
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <ReferenceList
+                    label="Company Code"
+                    values={reference.data.companyCodes.map((entry) => `${entry.code} — ${entry.name}`)}
+                    empty="No company is assigned to your account. Add one under Master Data."
+                  />
+                  <ReferenceList
+                    label="Priority"
+                    values={reference.data.priorities}
+                    empty="No active priority. Add one under Master Data."
+                  />
+                  <ReferenceList
+                    label="Department"
+                    values={reference.data.departments}
+                    empty="No active department. Add one under Master Data."
+                  />
+                </div>
+              )}
             </SectionCard>
 
             <SectionCard

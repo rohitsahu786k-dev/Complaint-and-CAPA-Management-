@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { COMPLAINT_IMPORT_COLUMNS, type RowIssue } from "./import.service";
+import { COMPLAINT_IMPORT_COLUMNS, parseDate, type RowIssue } from "./import.service";
 import { COMPLAINT_TYPES } from "@shared/constants/domain";
 
 describe("Excel Import Validation Engine", () => {
@@ -69,5 +69,51 @@ describe("Excel Import Validation Engine", () => {
     }
 
     expect(issues).toHaveLength(0);
+  });
+});
+describe("Received Date parsing", () => {
+  const iso = (value: unknown) => parseDate(value)?.toISOString().slice(0, 10) ?? null;
+
+  it("reads an ISO date as written", () => {
+    expect(iso("2026-09-05")).toBe("2026-09-05");
+    expect(iso("2026-09-05T11:30:00.000Z")).toBe("2026-09-05");
+  });
+
+  it("reads an ambiguous d/m/y day-first, matching how the portal shows dates", () => {
+    // The bug this pins: 05/09/2026 was read as 9 May, backdating the complaint
+    // by four months and quietly shifting every TAT calculation with it.
+    expect(iso("05/09/2026")).toBe("2026-09-05");
+    expect(iso("05-09-2026")).toBe("2026-09-05");
+    expect(iso("5.9.2026")).toBe("2026-09-05");
+  });
+
+  it("falls back to month-first only when the day is impossible", () => {
+    expect(iso("09/25/2026")).toBe("2026-09-25");
+  });
+
+  it("keeps an unambiguous day-first date intact", () => {
+    expect(iso("25/09/2026")).toBe("2026-09-25");
+  });
+
+  it("expands a two-digit year", () => {
+    expect(iso("05/09/26")).toBe("2026-09-05");
+    expect(iso("05/09/99")).toBe("1999-09-05");
+  });
+
+  it("reads an Excel serial number", () => {
+    // 46270 is 5 September 2026 in the 1900 date system.
+    expect(iso(46270)).toBe("2026-09-05");
+  });
+
+  it("rejects a date that does not exist rather than rolling it forward", () => {
+    expect(parseDate("31/02/2026")).toBeNull();
+    expect(parseDate("2026-02-31")).toBeNull();
+  });
+
+  it("rejects blanks, junk, and out-of-range serials", () => {
+    expect(parseDate("")).toBeNull();
+    expect(parseDate(undefined)).toBeNull();
+    expect(parseDate("not a date")).toBeNull();
+    expect(parseDate(12)).toBeNull();
   });
 });

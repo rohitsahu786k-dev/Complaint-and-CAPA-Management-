@@ -3,8 +3,8 @@ import { z } from "zod";
 import { connectDB } from "../config/db";
 import { requirePermission, requireUser } from "../middleware/auth";
 import {
-  COMPLAINT_IMPORT_COLUMNS,
   commitComplaintImport,
+  getImportReference,
   migrateLegacyDatabase,
   previewComplaintImport
 } from "../services/import.service";
@@ -20,24 +20,15 @@ const rowsSchema = z.object({
   rows: z.array(z.record(z.union([z.string(), z.number(), z.undefined()]))).max(2000)
 });
 
+/**
+ * Template and reference data. Both the sample row and the lists the screen shows are
+ * derived from live master data, so the codes offered are always ones the portal accepts.
+ */
 importRouter.get(
   "/template",
-  asyncHandler(async (_req, res) => {
-    return ok(res, {
-      columns: COMPLAINT_IMPORT_COLUMNS,
-      sample: {
-        Type: "External",
-        "Company Code": "ONEPWS",
-        "Received Date": new Date().toISOString().slice(0, 10),
-        Priority: "Medium",
-        Category: "Product quality issue",
-        Customer: "Example Customer Ltd",
-        Product: "Workstation",
-        "Responsible Department": "Production",
-        "Owner Username": "",
-        Description: "Describe the complaint in at least ten characters"
-      }
-    });
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    return ok(res, await getImportReference(req.user));
   })
 );
 

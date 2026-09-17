@@ -6295,28 +6295,69 @@ function text(value) {
   if (value === void 0 || value === null) return "";
   return String(value).trim();
 }
+function buildDate(year, month, day) {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date2 = new Date(Date.UTC(year, month - 1, day));
+  if (date2.getUTCMonth() !== month - 1 || date2.getUTCDate() !== day) return null;
+  return date2;
+}
 function parseDate(value) {
   const raw = text(value);
   if (!raw) return null;
   if (/^\d+(\.\d+)?$/.test(raw)) {
     const serial = Number(raw);
     if (serial > 2e4 && serial < 6e4) return new Date(Math.round((serial - 25569) * 864e5));
+    return null;
+  }
+  const iso2 = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]|$)/.exec(raw);
+  if (iso2) return buildDate(Number(iso2[1]), Number(iso2[2]), Number(iso2[3]));
+  const parts = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/.exec(raw);
+  if (parts) {
+    let day = Number(parts[1]);
+    let month = Number(parts[2]);
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    let year = Number(parts[3]);
+    if (year < 100) year += year < 70 ? 2e3 : 1900;
+    return buildDate(year, month, day);
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
-async function loadMasters() {
+function listOptions(values, limit = 12) {
+  if (values.length === 0) return "none are set up yet - add one under Master Data";
+  const shown = values.slice(0, limit).join(", ");
+  return values.length > limit ? `${shown}, +${values.length - limit} more` : shown;
+}
+async function loadMasters(actor) {
   const [companies, departments, priorities, users] = await Promise.all([
-    Company.find({ active: true }).select("name code").lean(),
-    Department.find().select("name").lean(),
+    // Inactive companies are loaded too, only so a rejection can say which of the two
+    // reasons applies rather than claiming the company does not exist.
+    Company.find().select("name code active").lean(),
+    // Active-only, to match every other master lookup here. An inactive department
+    // was previously still accepted, which let an import resurrect a retired one.
+    Department.find({ active: true }).select("name").lean(),
     Priority.find({ active: true }).select("name").lean(),
     User.find({ active: true }).select("username").lean()
   ]);
+  const visible = companies.filter((entry) => entry.active && canSeeCompany(actor, String(entry._id)));
+  const visibleIds = new Set(visible.map((entry) => String(entry._id)));
+  const unavailableCompanies = /* @__PURE__ */ new Map();
+  companies.forEach((entry) => {
+    if (visibleIds.has(String(entry._id))) return;
+    unavailableCompanies.set(
+      entry.code.toUpperCase(),
+      entry.active ? "your account is not assigned to that company - ask a Master Admin for access" : "that company is marked inactive - reactivate it under Master Data"
+    );
+  });
   return {
-    companies: new Map(companies.map((entry) => [entry.code.toUpperCase(), { id: entry._id, name: entry.name }])),
+    companies: new Map(visible.map((entry) => [entry.code.toUpperCase(), { id: entry._id, name: entry.name }])),
     departments: new Map(departments.map((entry) => [entry.name.toLowerCase(), entry._id])),
     priorities: new Map(priorities.map((entry) => [entry.name.toLowerCase(), entry._id])),
-    users: new Map(users.map((entry) => [entry.username.toLowerCase(), entry._id]))
+    users: new Map(users.map((entry) => [entry.username.toLowerCase(), entry._id])),
+    companyCodes: visible.map((entry) => entry.code.toUpperCase()).sort(),
+    departmentNames: departments.map((entry) => entry.name).sort(),
+    priorityNames: priorities.map((entry) => entry.name).sort(),
+    unavailableCompanies
   };
 }
 function normalise(row, index, masters) {
@@ -6326,26 +6367,45 @@ function normalise(row, index, masters) {
   if (!COMPLAINT_TYPES.includes(type)) push("Type", "Must be External or Internal");
   const companyCode = text(row["Company Code"]).toUpperCase();
   const company = masters.companies.get(companyCode);
-  if (!company) push("Company Code", `No active company with code ${companyCode || "(blank)"}`);
+  if (!company) {
+    const blocked = masters.unavailableCompanies.get(companyCode);
+    push(
+      "Company Code",
+      blocked ? `Company ${companyCode} cannot be imported into because ${blocked}.` : companyCode ? `No company with code ${companyCode}. Use one of: ${listOptions(masters.companyCodes)}` : `Company Code is required. Use one of: ${listOptions(masters.companyCodes)}`
+    );
+  }
   const receivedAt = parseDate(row["Received Date"]);
-  if (!receivedAt) push("Received Date", "Could not be read as a date");
+  if (!receivedAt) {
+    push(
+      "Received Date",
+      text(row["Received Date"]) ? `Could not be read as a date: "${text(row["Received Date"])}". Use YYYY-MM-DD, or a real Excel date cell.` : "Received Date is required. Use YYYY-MM-DD, or a real Excel date cell."
+    );
+  }
   const priorityName = text(row.Priority).toLowerCase();
   const priority = masters.priorities.get(priorityName);
-  if (!priority) push("Priority", `Unknown priority ${text(row.Priority) || "(blank)"}`);
+  if (!priority) {
+    push(
+      "Priority",
+      text(row.Priority) ? `Unknown priority "${text(row.Priority)}". Use one of: ${listOptions(masters.priorityNames)}` : `Priority is required. Use one of: ${listOptions(masters.priorityNames)}`
+    );
+  }
   const category = text(row.Category);
   if (!category) push("Category", "Category is required");
   const description = text(row.Description);
-  if (description.length < 10) push("Description", "Description must be at least 10 characters");
+  if (description.length < 10) {
+    push("Description", `Description must be at least 10 characters (this row has ${description.length})`);
+  }
   const customer = text(row.Customer);
   const responsibleDept = masters.departments.get(text(row["Responsible Department"]).toLowerCase());
   const internalDept = masters.departments.get(text(row["Raising Department"]).toLowerCase());
   const againstDept = masters.departments.get(text(row["Against Department"]).toLowerCase());
+  const departmentIssue = (raw) => raw ? `Unknown department "${raw}". Use one of: ${listOptions(masters.departmentNames)}` : `Department is required. Use one of: ${listOptions(masters.departmentNames)}`;
   if (type === "External") {
     if (!customer) push("Customer", "Customer is required for an external complaint");
-    if (!responsibleDept) push("Responsible Department", "Unknown or missing department");
+    if (!responsibleDept) push("Responsible Department", departmentIssue(text(row["Responsible Department"])));
   } else {
-    if (!internalDept) push("Raising Department", "Unknown or missing department");
-    if (!againstDept) push("Against Department", "Unknown or missing department");
+    if (!internalDept) push("Raising Department", departmentIssue(text(row["Raising Department"])));
+    if (!againstDept) push("Against Department", departmentIssue(text(row["Against Department"])));
   }
   const ownerUsername = text(row["Owner Username"]).toLowerCase();
   const owner = ownerUsername ? masters.users.get(ownerUsername) : void 0;
@@ -6384,34 +6444,65 @@ async function detectDuplicates(rows) {
   const companies = [...new Set(valid.map((row) => String(row.company)))];
   const cutoff = new Date(Date.now() - config.repeatWindowDays * 864e5);
   const existing = await Complaint.find({ company: { $in: companies }, receivedAt: { $gte: cutoff } }).select("number company customer product category receivedAt").lean();
+  const numberById = new Map(existing.map((entry) => [String(entry._id), entry.number]));
+  const population = existing.map((entry) => ({
+    id: String(entry._id),
+    companyId: String(entry.company),
+    customer: entry.customer ?? void 0,
+    product: entry.product ?? void 0,
+    category: entry.category ?? void 0,
+    receivedAt: entry.receivedAt.toISOString()
+  }));
   valid.forEach((row) => {
-    const matches = findRepeatMatches(
-      {
-        id: `row-${row.index}`,
-        companyId: String(row.company),
-        customer: row.customer,
-        product: row.product,
-        category: row.category,
-        receivedAt: row.receivedAt.toISOString()
-      },
-      existing.map((entry) => ({
-        id: String(entry._id),
-        companyId: String(entry.company),
-        customer: entry.customer ?? void 0,
-        product: entry.product ?? void 0,
-        category: entry.category ?? void 0,
-        receivedAt: entry.receivedAt.toISOString()
-      })),
-      config.repeatWindowDays
-    );
+    const candidate = {
+      id: `row-${row.index}`,
+      companyId: String(row.company),
+      customer: row.customer,
+      product: row.product,
+      category: row.category,
+      receivedAt: row.receivedAt.toISOString()
+    };
+    const matches = findRepeatMatches(candidate, population, config.repeatWindowDays);
     if (matches.length > 0) {
       map.set(
         row.index,
-        matches.map((match) => existing.find((entry) => String(entry._id) === match.complaintId)?.number ?? "")
+        matches.map((match) => numberById.get(match.complaintId) ?? match.complaintId.replace(/^row-/, "row "))
       );
     }
+    population.push(candidate);
   });
   return map;
+}
+async function getImportReference(user) {
+  const actor = await requireActor(user);
+  const masters = await loadMasters(actor);
+  const [companies, categories] = await Promise.all([
+    Company.find({ active: true }).select("name code").sort({ code: 1 }).lean(),
+    Category.find({ active: true, parent: null }).select("name complaintType").sort({ order: 1, name: 1 }).lean()
+  ]);
+  const visibleCompanies = companies.filter((entry) => canSeeCompany(actor, String(entry._id))).map((entry) => ({ code: entry.code.toUpperCase(), name: entry.name }));
+  const externalCategory = categories.find((entry) => entry.complaintType === "External");
+  const samplePriority = masters.priorityNames.find((name2) => name2.toLowerCase() === "medium") ?? masters.priorityNames[0];
+  return {
+    columns: [...COMPLAINT_IMPORT_COLUMNS],
+    companyCodes: visibleCompanies,
+    priorities: masters.priorityNames,
+    departments: masters.departmentNames,
+    categories: categories.map((entry) => ({ name: entry.name, complaintType: String(entry.complaintType) })),
+    sample: {
+      Type: "External",
+      "Company Code": visibleCompanies[0]?.code ?? "",
+      // ISO keeps the sample unambiguous whichever locale the sheet is opened in.
+      "Received Date": (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+      Priority: samplePriority ?? "",
+      Category: externalCategory?.name ?? "",
+      Customer: "Example Customer Ltd",
+      Product: "Workstation",
+      "Responsible Department": masters.departmentNames[0] ?? "",
+      "Owner Username": "",
+      Description: "Describe the complaint in at least ten characters"
+    }
+  };
 }
 async function previewComplaintImport(rows, user) {
   const actor = await requireActor(user);
@@ -6420,7 +6511,7 @@ async function previewComplaintImport(rows, user) {
   }
   if (rows.length === 0) throw businessRuleError("The uploaded sheet has no data rows", [{ field: "file", message: "No rows were found" }]);
   if (rows.length > 2e3) throw businessRuleError("Too many rows in one import", [{ field: "file", message: "Import at most 2000 rows at a time" }]);
-  const masters = await loadMasters();
+  const masters = await loadMasters(actor);
   const normalised = rows.map((row, index) => normalise(row, index + 2, masters));
   const duplicates = await detectDuplicates(normalised);
   const issues = normalised.flatMap((row) => row.issues);
@@ -6449,7 +6540,7 @@ async function commitComplaintImport(rows, strategy, user) {
   if (!actor.permissions.includes("*") && !actor.permissions.includes("complaint.create")) {
     throw httpError(403, "You do not have permission to import complaints");
   }
-  const masters = await loadMasters();
+  const masters = await loadMasters(actor);
   const normalised = rows.map((row, index) => normalise(row, index + 2, masters));
   const duplicates = await detectDuplicates(normalised);
   const created = [];
@@ -7024,22 +7115,9 @@ var rowsSchema = z14.object({
 });
 importRouter.get(
   "/template",
-  asyncHandler(async (_req, res) => {
-    return ok(res, {
-      columns: COMPLAINT_IMPORT_COLUMNS,
-      sample: {
-        Type: "External",
-        "Company Code": "ONEPWS",
-        "Received Date": (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
-        Priority: "Medium",
-        Category: "Product quality issue",
-        Customer: "Example Customer Ltd",
-        Product: "Workstation",
-        "Responsible Department": "Production",
-        "Owner Username": "",
-        Description: "Describe the complaint in at least ten characters"
-      }
-    });
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    return ok(res, await getImportReference(req.user));
   })
 );
 importRouter.post(

@@ -1,15 +1,16 @@
 import { Types } from "mongoose";
 import type { ApiUser } from "@shared/types/api";
 import { COMPLAINT_TYPES } from "@shared/constants/domain";
-import { isMasterAdmin } from "../domain/rbac";
-import { findRepeatMatches } from "../domain/repeat";
+import { canSeeCompany, isMasterAdmin } from "../domain/rbac";
+import { findRepeatMatches, type RepeatCandidate } from "../domain/repeat";
+import type { DomainActor } from "../domain/types";
 import { validateUpload } from "../domain/upload-rules";
 import { Attachment } from "../models/Attachment";
 import { Capa } from "../models/Capa";
 import { Company } from "../models/Company";
 import { Complaint } from "../models/Complaint";
 import { Department } from "../models/Department";
-import { Priority } from "../models/masters";
+import { Category, Priority } from "../models/masters";
 import { User } from "../models/User";
 import { requireActor } from "./complaint.service";
 import { resolveTatConfig } from "./config.service";
@@ -71,16 +72,57 @@ function text(value: unknown): string {
   return String(value).trim();
 }
 
-function parseDate(value: unknown): Date | null {
+/** Rejects 31/02 and friends, which the Date constructor silently rolls into the next month. */
+function buildDate(year: number, month: number, day: number): Date | null {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return date;
+}
+
+/**
+ * A received date reaches us in one of three shapes: an ISO string (what the browser
+ * sends for a real Excel date cell), an Excel serial number, or a locale-formatted
+ * string from a CSV or a text-formatted column. An ambiguous d/m/y is read day-first
+ * because the portal enters and renders dates as dd MMM yyyy throughout - reading
+ * 05/09/2026 as 9 May would silently backdate the complaint by four months.
+ *
+ * Exported so the ambiguous-format rules can be pinned down by tests.
+ */
+export function parseDate(value: unknown): Date | null {
   const raw = text(value);
   if (!raw) return null;
+
   // Excel serial dates arrive as numbers when the sheet was not formatted as text.
   if (/^\d+(\.\d+)?$/.test(raw)) {
     const serial = Number(raw);
     if (serial > 20000 && serial < 60000) return new Date(Math.round((serial - 25569) * 86400000));
+    return null;
   }
+
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ]|$)/.exec(raw);
+  if (iso) return buildDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+
+  const parts = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/.exec(raw);
+  if (parts) {
+    let day = Number(parts[1]);
+    let month = Number(parts[2]);
+    // Only an impossible day forces the American reading of the same string.
+    if (month > 12 && day <= 12) [day, month] = [month, day];
+    let year = Number(parts[3]);
+    if (year < 100) year += year < 70 ? 2000 : 1900;
+    return buildDate(year, month, day);
+  }
+
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+/** Keeps a validation message readable on a portal carrying a lot of master data. */
+function listOptions(values: string[], limit = 12): string {
+  if (values.length === 0) return "none are set up yet - add one under Master Data";
+  const shown = values.slice(0, limit).join(", ");
+  return values.length > limit ? `${shown}, +${values.length - limit} more` : shown;
 }
 
 type MasterIndex = {
@@ -88,20 +130,52 @@ type MasterIndex = {
   departments: Map<string, Types.ObjectId>;
   priorities: Map<string, Types.ObjectId>;
   users: Map<string, Types.ObjectId>;
+  /** The spellings a validation message offers back when a cell does not match. */
+  companyCodes: string[];
+  departmentNames: string[];
+  priorityNames: string[];
+  /** Code -> why that real company still cannot be imported into. */
+  unavailableCompanies: Map<string, string>;
 };
 
-async function loadMasters(): Promise<MasterIndex> {
+async function loadMasters(actor: DomainActor): Promise<MasterIndex> {
   const [companies, departments, priorities, users] = await Promise.all([
-    Company.find({ active: true }).select("name code").lean(),
-    Department.find().select("name").lean(),
+    // Inactive companies are loaded too, only so a rejection can say which of the two
+    // reasons applies rather than claiming the company does not exist.
+    Company.find().select("name code active").lean(),
+    // Active-only, to match every other master lookup here. An inactive department
+    // was previously still accepted, which let an import resurrect a retired one.
+    Department.find({ active: true }).select("name").lean(),
     Priority.find({ active: true }).select("name").lean(),
     User.find({ active: true }).select("username").lean()
   ]);
+
+  // An importer may only file complaints for companies they are assigned to. Without
+  // this filter a company-scoped user could seed records into any operating company,
+  // which the single-complaint create path has always refused.
+  const visible = companies.filter((entry) => entry.active && canSeeCompany(actor, String(entry._id)));
+  const visibleIds = new Set(visible.map((entry) => String(entry._id)));
+
+  const unavailableCompanies = new Map<string, string>();
+  companies.forEach((entry) => {
+    if (visibleIds.has(String(entry._id))) return;
+    unavailableCompanies.set(
+      entry.code.toUpperCase(),
+      entry.active
+        ? "your account is not assigned to that company - ask a Master Admin for access"
+        : "that company is marked inactive - reactivate it under Master Data"
+    );
+  });
+
   return {
-    companies: new Map(companies.map((entry) => [entry.code.toUpperCase(), { id: entry._id, name: entry.name }])),
+    companies: new Map(visible.map((entry) => [entry.code.toUpperCase(), { id: entry._id, name: entry.name }])),
     departments: new Map(departments.map((entry) => [entry.name.toLowerCase(), entry._id])),
     priorities: new Map(priorities.map((entry) => [entry.name.toLowerCase(), entry._id])),
-    users: new Map(users.map((entry) => [entry.username.toLowerCase(), entry._id]))
+    users: new Map(users.map((entry) => [entry.username.toLowerCase(), entry._id])),
+    companyCodes: visible.map((entry) => entry.code.toUpperCase()).sort(),
+    departmentNames: departments.map((entry) => entry.name).sort(),
+    priorityNames: priorities.map((entry) => entry.name).sort(),
+    unavailableCompanies
   };
 }
 
@@ -138,34 +212,68 @@ function normalise(row: ImportRow, index: number, masters: MasterIndex): Normali
   const type = text(row.Type) || "External";
   if (!COMPLAINT_TYPES.includes(type as (typeof COMPLAINT_TYPES)[number])) push("Type", "Must be External or Internal");
 
+  // Every "unknown master data" message names the accepted spellings. The template used
+  // to ship a hardcoded sample code, so a portal whose company code differed rejected
+  // every row with no way to discover the right value from the screen.
   const companyCode = text(row["Company Code"]).toUpperCase();
   const company = masters.companies.get(companyCode);
-  if (!company) push("Company Code", `No active company with code ${companyCode || "(blank)"}`);
+  if (!company) {
+    const blocked = masters.unavailableCompanies.get(companyCode);
+    push(
+      "Company Code",
+      blocked
+        ? `Company ${companyCode} cannot be imported into because ${blocked}.`
+        : companyCode
+          ? `No company with code ${companyCode}. Use one of: ${listOptions(masters.companyCodes)}`
+          : `Company Code is required. Use one of: ${listOptions(masters.companyCodes)}`
+    );
+  }
 
   const receivedAt = parseDate(row["Received Date"]);
-  if (!receivedAt) push("Received Date", "Could not be read as a date");
+  if (!receivedAt) {
+    push(
+      "Received Date",
+      text(row["Received Date"])
+        ? `Could not be read as a date: "${text(row["Received Date"])}". Use YYYY-MM-DD, or a real Excel date cell.`
+        : "Received Date is required. Use YYYY-MM-DD, or a real Excel date cell."
+    );
+  }
 
   const priorityName = text(row.Priority).toLowerCase();
   const priority = masters.priorities.get(priorityName);
-  if (!priority) push("Priority", `Unknown priority ${text(row.Priority) || "(blank)"}`);
+  if (!priority) {
+    push(
+      "Priority",
+      text(row.Priority)
+        ? `Unknown priority "${text(row.Priority)}". Use one of: ${listOptions(masters.priorityNames)}`
+        : `Priority is required. Use one of: ${listOptions(masters.priorityNames)}`
+    );
+  }
 
   const category = text(row.Category);
   if (!category) push("Category", "Category is required");
 
   const description = text(row.Description);
-  if (description.length < 10) push("Description", "Description must be at least 10 characters");
+  if (description.length < 10) {
+    push("Description", `Description must be at least 10 characters (this row has ${description.length})`);
+  }
 
   const customer = text(row.Customer);
   const responsibleDept = masters.departments.get(text(row["Responsible Department"]).toLowerCase());
   const internalDept = masters.departments.get(text(row["Raising Department"]).toLowerCase());
   const againstDept = masters.departments.get(text(row["Against Department"]).toLowerCase());
 
+  const departmentIssue = (raw: string) =>
+    raw
+      ? `Unknown department "${raw}". Use one of: ${listOptions(masters.departmentNames)}`
+      : `Department is required. Use one of: ${listOptions(masters.departmentNames)}`;
+
   if (type === "External") {
     if (!customer) push("Customer", "Customer is required for an external complaint");
-    if (!responsibleDept) push("Responsible Department", "Unknown or missing department");
+    if (!responsibleDept) push("Responsible Department", departmentIssue(text(row["Responsible Department"])));
   } else {
-    if (!internalDept) push("Raising Department", "Unknown or missing department");
-    if (!againstDept) push("Against Department", "Unknown or missing department");
+    if (!internalDept) push("Raising Department", departmentIssue(text(row["Raising Department"])));
+    if (!againstDept) push("Against Department", departmentIssue(text(row["Against Department"])));
   }
 
   const ownerUsername = text(row["Owner Username"]).toLowerCase();
@@ -211,35 +319,90 @@ async function detectDuplicates(rows: NormalisedRow[]) {
     .select("number company customer product category receivedAt")
     .lean();
 
+  const numberById = new Map(existing.map((entry) => [String(entry._id), entry.number]));
+  const population: RepeatCandidate[] = existing.map((entry) => ({
+    id: String(entry._id),
+    companyId: String(entry.company),
+    customer: entry.customer ?? undefined,
+    product: entry.product ?? undefined,
+    category: entry.category ?? undefined,
+    receivedAt: (entry.receivedAt as Date).toISOString()
+  }));
+
   valid.forEach((row) => {
-    const matches = findRepeatMatches(
-      {
-        id: `row-${row.index}`,
-        companyId: String(row.company),
-        customer: row.customer,
-        product: row.product,
-        category: row.category,
-        receivedAt: (row.receivedAt as Date).toISOString()
-      },
-      existing.map((entry) => ({
-        id: String(entry._id),
-        companyId: String(entry.company),
-        customer: entry.customer ?? undefined,
-        product: entry.product ?? undefined,
-        category: entry.category ?? undefined,
-        receivedAt: (entry.receivedAt as Date).toISOString()
-      })),
-      config.repeatWindowDays
-    );
+    const candidate: RepeatCandidate = {
+      id: `row-${row.index}`,
+      companyId: String(row.company),
+      customer: row.customer,
+      product: row.product,
+      category: row.category,
+      receivedAt: (row.receivedAt as Date).toISOString()
+    };
+    const matches = findRepeatMatches(candidate, population, config.repeatWindowDays);
     if (matches.length > 0) {
       map.set(
         row.index,
-        matches.map((match) => existing.find((entry) => String(entry._id) === match.complaintId)?.number ?? "")
+        matches.map((match) => numberById.get(match.complaintId) ?? match.complaintId.replace(/^row-/, "row "))
       );
     }
+    // Later rows are compared against this one too. The batch was previously only
+    // checked against the database, so a sheet listing the same complaint twice
+    // registered it twice however the duplicate strategy was set.
+    population.push(candidate);
   });
 
   return map;
+}
+
+export type ImportReference = {
+  columns: string[];
+  companyCodes: { code: string; name: string }[];
+  priorities: string[];
+  departments: string[];
+  categories: { name: string; complaintType: string }[];
+  sample: Record<string, string>;
+};
+
+/**
+ * The downloadable template used to carry a hardcoded "ONEPWS" company code, and the
+ * screen never showed the real master data, so any portal whose company code differed
+ * rejected every row with nothing to correct it against. Both the sample row and the
+ * on-screen reference are now built from the master data this importer can actually use.
+ */
+export async function getImportReference(user: ApiUser | undefined): Promise<ImportReference> {
+  const actor = await requireActor(user);
+  const masters = await loadMasters(actor);
+  const [companies, categories] = await Promise.all([
+    Company.find({ active: true }).select("name code").sort({ code: 1 }).lean(),
+    Category.find({ active: true, parent: null }).select("name complaintType").sort({ order: 1, name: 1 }).lean()
+  ]);
+
+  const visibleCompanies = companies
+    .filter((entry) => canSeeCompany(actor, String(entry._id)))
+    .map((entry) => ({ code: entry.code.toUpperCase(), name: entry.name }));
+  const externalCategory = categories.find((entry) => entry.complaintType === "External");
+  const samplePriority = masters.priorityNames.find((name) => name.toLowerCase() === "medium") ?? masters.priorityNames[0];
+
+  return {
+    columns: [...COMPLAINT_IMPORT_COLUMNS],
+    companyCodes: visibleCompanies,
+    priorities: masters.priorityNames,
+    departments: masters.departmentNames,
+    categories: categories.map((entry) => ({ name: entry.name, complaintType: String(entry.complaintType) })),
+    sample: {
+      Type: "External",
+      "Company Code": visibleCompanies[0]?.code ?? "",
+      // ISO keeps the sample unambiguous whichever locale the sheet is opened in.
+      "Received Date": new Date().toISOString().slice(0, 10),
+      Priority: samplePriority ?? "",
+      Category: externalCategory?.name ?? "",
+      Customer: "Example Customer Ltd",
+      Product: "Workstation",
+      "Responsible Department": masters.departmentNames[0] ?? "",
+      "Owner Username": "",
+      Description: "Describe the complaint in at least ten characters"
+    }
+  };
 }
 
 export async function previewComplaintImport(rows: ImportRow[], user: ApiUser | undefined): Promise<ImportPreview> {
@@ -250,7 +413,7 @@ export async function previewComplaintImport(rows: ImportRow[], user: ApiUser | 
   if (rows.length === 0) throw businessRuleError("The uploaded sheet has no data rows", [{ field: "file", message: "No rows were found" }]);
   if (rows.length > 2000) throw businessRuleError("Too many rows in one import", [{ field: "file", message: "Import at most 2000 rows at a time" }]);
 
-  const masters = await loadMasters();
+  const masters = await loadMasters(actor);
   const normalised = rows.map((row, index) => normalise(row, index + 2, masters));
   const duplicates = await detectDuplicates(normalised);
   const issues = normalised.flatMap((row) => row.issues);
@@ -284,7 +447,7 @@ export async function commitComplaintImport(rows: ImportRow[], strategy: ImportS
     throw httpError(403, "You do not have permission to import complaints");
   }
 
-  const masters = await loadMasters();
+  const masters = await loadMasters(actor);
   const normalised = rows.map((row, index) => normalise(row, index + 2, masters));
   const duplicates = await detectDuplicates(normalised);
 
