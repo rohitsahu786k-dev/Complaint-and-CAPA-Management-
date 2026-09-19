@@ -41,7 +41,7 @@ Configure the following environment variables in the **Vercel Project Settings**
 | `MONGODB_URI` | Yes | MongoDB Atlas connection string | `mongodb+srv://...` |
 | `JWT_SECRET` | Yes | 64+ character cryptographically random secret | `generated-hex-string` |
 | `COOKIE_SECRET` | Yes | 32+ character cookie signing secret | `generated-hex-string` |
-| `APP_BASE_URL` | Yes | Public URL of deployed application | `https://portal.onepws.com` |
+| `APP_BASE_URL` | Yes | Public URL of deployed application | `https://care.onepws.com` |
 | `CLOUDINARY_CLOUD_NAME` | Yes | Cloudinary account cloud name | `onepws-cloud` |
 | `CLOUDINARY_API_KEY` | Yes | Cloudinary REST API key | `123456789012345` |
 | `CLOUDINARY_API_SECRET` | Yes | Cloudinary private secret key | `secret-api-key` |
@@ -64,8 +64,8 @@ To bootstrap the first Master Admin user into a fresh database:
 1. In your local or deployment terminal with the target `MONGODB_URI` configured:
    ```bash
    SEED_ADMIN_NAME="Master Administrator" \
-   SEED_ADMIN_USERNAME="masteradmin" \
-   SEED_ADMIN_EMAIL="admin@onepws.com" \
+   SEED_ADMIN_USERNAME="service@onepws.com" \
+   SEED_ADMIN_EMAIL="service@onepws.com" \
    SEED_ADMIN_PASSWORD="StrongSecurePassword123!" \
    npm run seed
    ```

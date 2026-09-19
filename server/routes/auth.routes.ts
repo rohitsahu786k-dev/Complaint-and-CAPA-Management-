@@ -2,6 +2,7 @@ import { Router } from "express";
 import { changePasswordSchema, forgotPasswordSchema, loginSchema, resetPasswordSchema } from "@shared/schemas/auth";
 import { getEnv, isProduction } from "../config/env";
 import { connectDB } from "../config/db";
+import { getAppUrl } from "../lib/app-url";
 import { SESSION_COOKIE, requireUser } from "../middleware/auth";
 import { createRateLimit } from "../middleware/rate-limit";
 import { User } from "../models/User";
@@ -103,8 +104,7 @@ authRouter.post(
     }
     if (!result.user.email) throw httpError(422, "This user account does not have an email address configured.");
 
-    const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
-    const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
+    const resetUrl = new URL(`/reset-password?token=${result.token}`, getAppUrl()).toString();
 
     const email = await sendTemplatedEmail({
       triggerEvent: "PASSWORD_RESET_REQUESTED",

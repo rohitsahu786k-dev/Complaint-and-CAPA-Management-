@@ -120,8 +120,8 @@ Populate `.env` with your MongoDB URI, random JWT secrets, and optional service 
 Run the idempotent seed script to create default roles, permissions, master data, and initial Master Admin:
 ```bash
 SEED_ADMIN_NAME="Master Admin" \
-SEED_ADMIN_USERNAME="admin" \
-SEED_ADMIN_EMAIL="admin@onepws.com" \
+SEED_ADMIN_USERNAME="service@onepws.com" \
+SEED_ADMIN_EMAIL="service@onepws.com" \
 SEED_ADMIN_PASSWORD="StrongPassword123!" \
 npm run seed
 ```

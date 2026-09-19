@@ -3,8 +3,8 @@ import { z } from "zod";
 import { listQuerySchema, paginate } from "@shared/schemas/common";
 import { companyCreateSchema, departmentCreateSchema, employeeCreateSchema, permissionKeySchema } from "@shared/schemas/master-data";
 import { connectDB } from "../config/db";
-import { getEnv } from "../config/env";
 import { requirePermission, requireUser } from "../middleware/auth";
+import { getAppUrl } from "../lib/app-url";
 import { AuditLog } from "../models/AuditLog";
 import { Capa } from "../models/Capa";
 import { Company } from "../models/Company";
@@ -174,8 +174,7 @@ masterAdminRouter.post(
     let emailed = false;
     let emailStatus: "sent" | "failed" | "skipped" = "skipped";
     if (user.email) {
-      const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
-      const resetUrl = new URL(`/reset-password?token=${token}`, baseUrl).toString();
+      const resetUrl = new URL(`/reset-password?token=${token}`, getAppUrl()).toString();
       const result = await sendTemplatedEmail({
         triggerEvent: "PASSWORD_RESET_REQUESTED",
         recipients: [user.email],
