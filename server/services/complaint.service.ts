@@ -11,8 +11,10 @@ import type { DomainActor, DomainComplaint } from "../domain/types";
 import { delayGaps, stageGaps, stageSequenceGaps, type Gap } from "../domain/workflow";
 import { Capa } from "../models/Capa";
 import { Complaint, type ComplaintHydrated } from "../models/Complaint";
+import { Department } from "../models/Department";
 import { Employee } from "../models/Employee";
 import { Priority } from "../models/masters";
+import { User } from "../models/User";
 import { activeDelayReasons, resolveTatConfig } from "./config.service";
 import { toDomainActor, toDomainCapa, toDomainComplaint } from "./mappers";
 import { notify, usersWithRole } from "./notification.service";
@@ -21,6 +23,8 @@ import { resolveRecipients } from "./email-recipient.service";
 import { nextComplaintNumber } from "./numbering.service";
 import { writeAudit } from "./audit.service";
 import { businessRuleError, httpError, type FieldIssue } from "../utils/http";
+
+const COMPLAINT_CREATED_FIXED_CC = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
 
 function gapsToIssues(gaps: Gap[]): FieldIssue[] {
   return gaps.map((gap) => ({ field: gap.field, section: gap.section, message: gap.hint ? `${gap.field} — ${gap.hint}` : gap.field }));
@@ -177,14 +181,27 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
 
   const emailRecipients = await resolveRecipients({
     complaintId: doc._id,
-    targetRoles: ["Complaint Owner", "Coordinator", "Department Head", "Quality Head"]
+    targetRoles: ["Complaint Owner"]
+  });
+  const emailCc = await resolveRecipients({
+    complaintId: doc._id,
+    targetRoles: ["Manager", "Department Head"],
+    explicitEmails: COMPLAINT_CREATED_FIXED_CC
   });
   if (emailRecipients.length > 0) {
+    const [ownerUser, responsibleDepartment] = await Promise.all([
+      doc.owner ? User.findById(doc.owner).select("name email").lean() : null,
+      doc.responsibleDept ? Department.findById(doc.responsibleDept).select("name").lean() : null
+    ]);
+    const cc = emailCc.filter((email) => !emailRecipients.includes(email));
+
     await sendTemplatedEmail({
       triggerEvent: "COMPLAINT_CREATED",
       recipients: emailRecipients,
+      cc,
       relatedComplaintId: doc._id,
       data: {
+        recipientName: ownerUser?.name ?? "Complaint Owner",
         complaintNumber: doc.number,
         complaintTitle: doc.description || doc.number,
         complaintType: doc.type,
@@ -192,6 +209,8 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
         partName: doc.product || "Component",
         partNumber: "N/A",
         priority: String(doc.priority || "Standard"),
+        departmentName: responsibleDepartment?.name ?? "",
+        coordinatorName: actor.name,
         ackDueDate: "Within 24h",
         actionUrl: `/complaints/${doc._id}`
       }

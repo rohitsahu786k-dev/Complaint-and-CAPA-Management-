@@ -56,7 +56,7 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
     ),
     textBody:
       "Hello {{recipientName}},\n\nA password reset request was received for your account. Use the secure link below to reset your password. It expires in {{expiresInHours}} hour(s):\n\n{{resetUrl}}\n\nIf you did not request this, please ignore this email.\n\nRegards,\n{{companyName}}",
-    supportedVariables: ["recipientName", "resetUrl", "expiresInHours", "companyName", "appUrl"]
+    supportedVariables: ["recipientName", "username", "tempPassword", "resetUrl", "expiresInHours", "companyName", "appUrl"]
   },
   {
     templateKey: "auth-password-changed",

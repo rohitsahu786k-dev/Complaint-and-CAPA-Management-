@@ -134,13 +134,15 @@ export async function resetPasswordWithToken(token: string, newPassword: string)
     passwordResetTokenHash: sha256(token),
     passwordResetExpires: { $gt: new Date() },
     active: true
-  }).select("+passwordResetTokenHash +passwordResetExpires +passwordHash");
+  }).select("+passwordResetTokenHash +passwordResetExpires +passwordHash +failedLoginCount +lockedUntil");
 
   if (!user) throw httpError(400, "This reset link is invalid or has expired");
   user.passwordHash = await hashPassword(newPassword);
   user.passwordChangedAt = new Date();
   user.passwordResetTokenHash = undefined;
   user.passwordResetExpires = undefined;
+  user.failedLoginCount = 0;
+  user.lockedUntil = undefined;
   user.forcePasswordChange = false;
   await user.save();
   return user;

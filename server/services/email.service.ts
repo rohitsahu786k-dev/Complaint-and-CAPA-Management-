@@ -35,6 +35,25 @@ function normalizePortalLinks(data: Record<string, string | number | undefined |
   return normalized;
 }
 
+function appendTemporaryPasswordNotice(html: string, text: string, data: Record<string, string | number | undefined | null>) {
+  const tempPassword = typeof data.tempPassword === "string" ? data.tempPassword : "";
+  if (!tempPassword) return { html, text };
+
+  const resetUrl = typeof data.resetUrl === "string" ? data.resetUrl : "";
+  const safePassword = escapeHtml(tempPassword);
+  const safeResetUrl = escapeHtml(resetUrl);
+  const noticeHtml = `
+              <div style="margin:16px 0;padding:14px 16px;background-color:#fff7ed;border-left:3px solid #f97316;border-radius:4px;color:#7c2d12;font-size:13px;line-height:1.5;">
+                <strong>Temporary password:</strong>
+                <div style="margin:8px 0 10px;font-family:Consolas,Menlo,monospace;font-size:16px;font-weight:700;letter-spacing:0.04em;color:#1e293b;">${safePassword}</div>
+                Use this temporary password only if you need to sign in before creating your new password. Create a new password from the reset link${safeResetUrl ? `: <a href="${safeResetUrl}" target="_blank" style="color:#E31E25;font-weight:700;">${safeResetUrl}</a>` : "."}
+              </div>`;
+  const footerMarker = "          <!-- Footer -->";
+  const nextHtml = html.includes(footerMarker) ? html.replace(footerMarker, `${noticeHtml}\n${footerMarker}`) : `${html}${noticeHtml}`;
+  const nextText = `${text}\n\nTemporary password: ${tempPassword}${resetUrl ? `\nCreate a new password: ${resetUrl}` : ""}`;
+  return { html: nextHtml, text: nextText };
+}
+
 export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promise<SendEmailResult> {
   if (input.dedupeKey) {
     const alreadySent = await hasDedupeKeyBeenSent(input.dedupeKey);
@@ -101,6 +120,7 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
   const renderedSubject = renderTemplate(template.subject, mergedData).rendered;
   const renderedHtml = renderTemplate(template.htmlBody, mergedData).rendered;
   const renderedText = renderTemplate(template.textBody, mergedData).rendered;
+  const finalBody = appendTemporaryPasswordNotice(renderedHtml, renderedText, mergedData);
 
   if (!isSmtpConfigured()) {
     const skippedLog = await writeEmailLog({
@@ -129,8 +149,8 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
       cc: input.cc && input.cc.length > 0 ? input.cc : undefined,
       bcc: input.bcc && input.bcc.length > 0 ? input.bcc : undefined,
       subject: renderedSubject,
-      html: renderedHtml,
-      text: renderedText
+      html: finalBody.html,
+      text: finalBody.text
     });
 
     const sentLog = await writeEmailLog({

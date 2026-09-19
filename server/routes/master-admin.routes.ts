@@ -13,6 +13,7 @@ import { Department } from "../models/Department";
 import { Employee } from "../models/Employee";
 import { Role } from "../models/Role";
 import { User } from "../models/User";
+import { hashPassword } from "../services/auth.service";
 import { writeAudit } from "../services/audit.service";
 import { assertDeletable } from "../services/master-delete.service";
 import { sendTemplatedEmail } from "../services/email.service";
@@ -27,6 +28,10 @@ masterAdminRouter.use(requireUser);
 
 function escapeRegex(term: string) {
   return term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function createTemporaryPassword() {
+  return `OnePWS${randomToken(4)}A1`;
 }
 
 masterAdminRouter.get(
@@ -153,10 +158,12 @@ masterAdminRouter.post(
   requirePermission("*"),
   asyncHandler(async (req, res) => {
     await connectDB();
-    const user = await User.findById(req.params.id).select("+passwordResetTokenHash +passwordResetExpires +failedLoginCount +lockedUntil");
+    const user = await User.findById(req.params.id).select("+passwordHash +passwordResetTokenHash +passwordResetExpires +failedLoginCount +lockedUntil");
     if (!user) throw httpError(404, "User not found");
 
     const token = randomToken();
+    const temporaryPassword = createTemporaryPassword();
+    user.passwordHash = await hashPassword(temporaryPassword);
     user.passwordResetTokenHash = sha256(token);
     user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1000);
     user.forcePasswordChange = true;
@@ -172,7 +179,7 @@ masterAdminRouter.post(
       const result = await sendTemplatedEmail({
         triggerEvent: "PASSWORD_RESET_REQUESTED",
         recipients: [user.email],
-        data: { recipientName: user.name, resetUrl, expiresInHours: "1" },
+        data: { recipientName: user.name, username: user.username, tempPassword: temporaryPassword, resetUrl, expiresInHours: "1" },
         sentBySystem: false
       });
       emailStatus = result.status;
