@@ -9,11 +9,18 @@ import { api } from "@/lib/api";
 export function ForgotPasswordPage() {
   const [value, setValue] = useState("");
   const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    await api("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ emailOrUsername: value }) });
-    setDone(true);
+    setDone(false);
+    setError("");
+    try {
+      await api("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ emailOrUsername: value }) });
+      setDone(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Reset email could not be sent.");
+    }
   }
 
   return (
@@ -21,7 +28,7 @@ export function ForgotPasswordPage() {
       <form onSubmit={submit} className="rounded-lg border border-slate-200 bg-white p-6 shadow-soft">
         <h1 className="text-2xl font-bold text-brand-charcoal">Reset access</h1>
         <p className="mt-2 text-sm text-slate-500">
-          Enter your username or email. If the account exists, a secure reset link will be sent.
+          Enter your registered username or email to receive a secure reset link.
         </p>
         <label className="mt-5 block text-sm font-semibold text-slate-700">
           Username or email
@@ -29,7 +36,12 @@ export function ForgotPasswordPage() {
         </label>
         {done ? (
           <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">
-            Reset request accepted.
+            Reset email sent. Please check your inbox.
+          </div>
+        ) : null}
+        {error ? (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-brand-red">
+            {error}
           </div>
         ) : null}
         <Button className="mt-6 w-full">

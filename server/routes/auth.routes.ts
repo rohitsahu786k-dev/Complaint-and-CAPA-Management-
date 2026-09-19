@@ -93,23 +93,28 @@ authRouter.post(
     const input = forgotPasswordSchema.parse(req.body);
     await connectDB();
     const result = await createPasswordResetToken(input.emailOrUsername);
-    if (result?.user.email) {
-      const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
-      const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
+    if (!result) throw httpError(404, "No active user account was found for this username or email.");
+    if (!result.user.email) throw httpError(422, "This user account does not have an email address configured.");
 
-      await sendTemplatedEmail({
-        triggerEvent: "PASSWORD_RESET_REQUESTED",
-        recipients: [result.user.email],
-        data: {
-          recipientName: result.user.name,
-          resetUrl,
-          expiresInHours: "1"
-        },
-        sentBySystem: true
-      });
+    const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
+    const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
 
-      await writeAudit({ action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: String(result.user._id) });
+    const email = await sendTemplatedEmail({
+      triggerEvent: "PASSWORD_RESET_REQUESTED",
+      recipients: [result.user.email],
+      data: {
+        recipientName: result.user.name,
+        resetUrl,
+        expiresInHours: "1"
+      },
+      sentBySystem: true
+    });
+
+    if (email.status !== "sent") {
+      throw httpError(502, email.message || "Reset email could not be sent. Please contact the administrator.");
     }
+
+    await writeAudit({ action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: String(result.user._id) });
     return ok(res, { requested: true });
   })
 );
