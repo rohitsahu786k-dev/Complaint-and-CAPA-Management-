@@ -4,7 +4,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { AuthLayout } from "@/layouts/AuthLayout";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -28,7 +28,8 @@ export function ResetPasswordPage() {
       setPassword("");
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Password could not be reset. Please request a fresh reset email.");
+      const issueMessage = err instanceof ApiError ? err.issues[0]?.message : "";
+      setError(issueMessage || (err instanceof Error ? err.message : "Password could not be reset. Please request a fresh reset email."));
     } finally {
       setSaving(false);
     }
