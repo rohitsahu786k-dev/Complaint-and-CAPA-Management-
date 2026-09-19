@@ -93,7 +93,14 @@ authRouter.post(
     const input = forgotPasswordSchema.parse(req.body);
     await connectDB();
     const result = await createPasswordResetToken(input.emailOrUsername);
-    if (!result) throw httpError(404, "No active user account was found for this username or email.");
+    if (!result?.user) {
+      throw httpError(
+        404,
+        result?.employeeExists
+          ? "This email exists in the employee master, but no portal login user is linked to it. Please ask the administrator to create or link a System User."
+          : "No portal login user was found for this username or email."
+      );
+    }
     if (!result.user.email) throw httpError(422, "This user account does not have an email address configured.");
 
     const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;

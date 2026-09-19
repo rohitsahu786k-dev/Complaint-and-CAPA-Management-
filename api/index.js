@@ -112,6 +112,28 @@ var RoleSchema = new Schema2(
 );
 var Role = mongoose3.models.Role || mongoose3.model("Role", RoleSchema);
 
+// server/models/Employee.ts
+import mongoose4, { Schema as Schema3 } from "mongoose";
+var EmployeeSchema = new Schema3(
+  {
+    employeeCode: { type: String, required: true, uppercase: true, trim: true, index: true },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, lowercase: true, trim: true, index: true },
+    designation: { type: String, trim: true },
+    department: { type: Schema3.Types.ObjectId, ref: "Department", required: true, index: true },
+    company: { type: Schema3.Types.ObjectId, ref: "Company", required: true, index: true },
+    managerName: { type: String, trim: true },
+    managerEmail: { type: String, lowercase: true, trim: true },
+    hodName: { type: String, trim: true },
+    hodEmail: { type: String, lowercase: true, trim: true },
+    linkedUser: { type: Schema3.Types.ObjectId, ref: "User", index: true },
+    active: { type: Boolean, default: true, index: true }
+  },
+  { timestamps: true }
+);
+EmployeeSchema.index({ employeeCode: 1, company: 1 }, { unique: true });
+var Employee = mongoose4.models.Employee || mongoose4.model("Employee", EmployeeSchema);
+
 // server/utils/http.ts
 import { ZodError } from "zod";
 function ok(res, data, status = 200) {
@@ -258,9 +280,30 @@ async function authenticate(username, password) {
   return user;
 }
 async function createPasswordResetToken(emailOrUsername) {
-  const query = emailOrUsername.includes("@") ? { email: emailOrUsername.toLowerCase(), active: true } : { username: emailOrUsername.toLowerCase(), active: true };
-  const user = await User.findOne(query).select("+passwordResetTokenHash +passwordResetExpires");
-  if (!user) return null;
+  const lookup = emailOrUsername.trim().toLowerCase();
+  const user = await User.findOne({
+    active: true,
+    $or: [{ email: lookup }, { username: lookup }]
+  }).select("+passwordResetTokenHash +passwordResetExpires");
+  if (!user) {
+    const employee = lookup.includes("@") ? await Employee.findOne({
+      active: { $ne: false },
+      $or: [{ email: lookup }, { managerEmail: lookup }, { hodEmail: lookup }]
+    }).select("linkedUser").lean() : null;
+    if (employee?.linkedUser) {
+      const linkedUser = await User.findOne({ _id: employee.linkedUser, active: true }).select(
+        "+passwordResetTokenHash +passwordResetExpires"
+      );
+      if (linkedUser) {
+        const token2 = randomToken();
+        linkedUser.passwordResetTokenHash = sha256(token2);
+        linkedUser.passwordResetExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+        await linkedUser.save();
+        return { user: linkedUser, token: token2 };
+      }
+    }
+    return { user: null, token: null, employeeExists: Boolean(employee) };
+  }
   const token = randomToken();
   user.passwordResetTokenHash = sha256(token);
   user.passwordResetExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
@@ -272,12 +315,14 @@ async function resetPasswordWithToken(token, newPassword) {
     passwordResetTokenHash: sha256(token),
     passwordResetExpires: { $gt: /* @__PURE__ */ new Date() },
     active: true
-  }).select("+passwordResetTokenHash +passwordResetExpires +passwordHash");
+  }).select("+passwordResetTokenHash +passwordResetExpires +passwordHash +failedLoginCount +lockedUntil");
   if (!user) throw httpError(400, "This reset link is invalid or has expired");
   user.passwordHash = await hashPassword(newPassword);
   user.passwordChangedAt = /* @__PURE__ */ new Date();
   user.passwordResetTokenHash = void 0;
   user.passwordResetExpires = void 0;
+  user.failedLoginCount = 0;
+  user.lockedUntil = void 0;
   user.forcePasswordChange = false;
   await user.save();
   return user;
@@ -666,47 +711,47 @@ function isStageOverdueNow(complaint, stage, config, now = /* @__PURE__ */ new D
 }
 
 // server/models/Capa.ts
-import mongoose4, { Schema as Schema3 } from "mongoose";
-var EvidenceFileSchema = new Schema3(
+import mongoose5, { Schema as Schema4 } from "mongoose";
+var EvidenceFileSchema = new Schema4(
   {
-    attachment: { type: Schema3.Types.ObjectId, ref: "Attachment", required: true },
+    attachment: { type: Schema4.Types.ObjectId, ref: "Attachment", required: true },
     description: { type: String, trim: true, default: "" },
-    uploadedBy: { type: Schema3.Types.ObjectId, ref: "User" },
+    uploadedBy: { type: Schema4.Types.ObjectId, ref: "User" },
     uploadedAt: { type: Date, default: Date.now }
   },
   { _id: false }
 );
-var EvidenceReviewSchema = new Schema3(
+var EvidenceReviewSchema = new Schema4(
   {
     status: { type: String, enum: EVIDENCE_REVIEW_STATUSES, default: "Pending" },
-    by: { type: Schema3.Types.ObjectId, ref: "User" },
+    by: { type: Schema4.Types.ObjectId, ref: "User" },
     byName: { type: String, trim: true },
     at: { type: Date, default: null },
     remarks: { type: String, trim: true, default: "" }
   },
   { _id: false }
 );
-var EvidenceReviewHistorySchema = new Schema3(
+var EvidenceReviewHistorySchema = new Schema4(
   {
     status: { type: String, enum: EVIDENCE_REVIEW_STATUSES, required: true },
-    by: { type: Schema3.Types.ObjectId, ref: "User" },
+    by: { type: Schema4.Types.ObjectId, ref: "User" },
     byName: { type: String, trim: true },
     at: { type: Date, default: Date.now },
     remarks: { type: String, trim: true, default: "" }
   },
   { _id: false }
 );
-var CapaSchema = new Schema3(
+var CapaSchema = new Schema4(
   {
     number: { type: String, required: true, unique: true, trim: true, index: true },
-    complaint: { type: Schema3.Types.ObjectId, ref: "Complaint", required: true, index: true },
-    company: { type: Schema3.Types.ObjectId, ref: "Company", required: true, index: true },
+    complaint: { type: Schema4.Types.ObjectId, ref: "Complaint", required: true, index: true },
+    company: { type: Schema4.Types.ObjectId, ref: "Company", required: true, index: true },
     sequence: { type: Number, required: true },
     type: { type: String, enum: CAPA_TYPES, default: "Corrective" },
     action: { type: String, required: true, trim: true },
-    owner: { type: Schema3.Types.ObjectId, ref: "User", index: true },
-    department: { type: Schema3.Types.ObjectId, ref: "Department", index: true },
-    priority: { type: Schema3.Types.ObjectId, ref: "Priority" },
+    owner: { type: Schema4.Types.ObjectId, ref: "User", index: true },
+    department: { type: Schema4.Types.ObjectId, ref: "Department", index: true },
+    priority: { type: Schema4.Types.ObjectId, ref: "Priority" },
     assignedAt: { type: Date, default: Date.now },
     dueDate: { type: Date, required: true, index: true },
     completedAt: { type: Date, default: null },
@@ -718,7 +763,7 @@ var CapaSchema = new Schema3(
     delayReason: { type: String, trim: true, default: "" },
     effectiveness: { type: String, enum: [...CAPA_EFFECTIVENESS, null], default: null, index: true },
     effectivenessVerifiedAt: { type: Date, default: null },
-    effectivenessVerifiedBy: { type: Schema3.Types.ObjectId, ref: "User" },
+    effectivenessVerifiedBy: { type: Schema4.Types.ObjectId, ref: "User" },
     effectivenessEvidence: { type: String, trim: true, default: "" },
     effectivenessEvidenceFiles: { type: [EvidenceFileSchema], default: [] },
     verificationMethod: { type: String, trim: true, default: "" },
@@ -729,23 +774,23 @@ var CapaSchema = new Schema3(
 CapaSchema.index({ company: 1, status: 1, dueDate: 1 });
 CapaSchema.index({ owner: 1, status: 1 });
 CapaSchema.index({ complaint: 1, sequence: 1 });
-var Capa = mongoose4.models.Capa || mongoose4.model("Capa", CapaSchema);
+var Capa = mongoose5.models.Capa || mongoose5.model("Capa", CapaSchema);
 
 // server/models/Complaint.ts
-import mongoose5, { Schema as Schema4 } from "mongoose";
-var DelayReasonSchema = new Schema4(
+import mongoose6, { Schema as Schema5 } from "mongoose";
+var DelayReasonSchema = new Schema5(
   {
     category: { type: String, required: true, trim: true },
     explanation: { type: String, required: true, trim: true },
     recovery: { type: String, trim: true },
     recordedAt: { type: Date, default: Date.now },
-    recordedBy: { type: Schema4.Types.ObjectId, ref: "User" }
+    recordedBy: { type: Schema5.Types.ObjectId, ref: "User" }
   },
   { _id: false }
 );
-var TeamMemberSchema = new Schema4(
+var TeamMemberSchema = new Schema5(
   {
-    employee: { type: Schema4.Types.ObjectId, ref: "Employee" },
+    employee: { type: Schema5.Types.ObjectId, ref: "Employee" },
     name: { type: String, trim: true },
     dept: { type: String, trim: true },
     designation: { type: String, trim: true },
@@ -754,11 +799,11 @@ var TeamMemberSchema = new Schema4(
   },
   { _id: false }
 );
-var ActionRowSchema = new Schema4(
+var ActionRowSchema = new Schema5(
   {
     action: { type: String, trim: true },
     resp: { type: String, trim: true },
-    respEmployee: { type: Schema4.Types.ObjectId, ref: "Employee" },
+    respEmployee: { type: Schema5.Types.ObjectId, ref: "Employee" },
     target: { type: String, trim: true },
     targetAuto: { type: Boolean, default: false },
     status: { type: String, trim: true, default: "Open" },
@@ -768,11 +813,11 @@ var ActionRowSchema = new Schema4(
   },
   { _id: false }
 );
-var D6DocumentSchema = new Schema4(
+var D6DocumentSchema = new Schema5(
   {
     docType: { type: String, enum: D6_DOCUMENT_TYPES, required: true },
     status: { type: String, enum: D6_DOCUMENT_STATUSES, default: "Pending" },
-    attachment: { type: Schema4.Types.ObjectId, ref: "Attachment", default: null },
+    attachment: { type: Schema5.Types.ObjectId, ref: "Attachment", default: null },
     revision: { type: String, trim: true },
     revDate: { type: String, trim: true },
     approver: { type: String, trim: true },
@@ -780,9 +825,9 @@ var D6DocumentSchema = new Schema4(
   },
   { _id: false }
 );
-var SignatureSchema = new Schema4(
+var SignatureSchema = new Schema5(
   {
-    user: { type: Schema4.Types.ObjectId, ref: "User", required: true },
+    user: { type: Schema5.Types.ObjectId, ref: "User", required: true },
     name: { type: String, required: true, trim: true },
     designation: { type: String, trim: true },
     department: { type: String, trim: true },
@@ -792,19 +837,19 @@ var SignatureSchema = new Schema4(
   },
   { _id: false }
 );
-var WorkflowLogSchema = new Schema4(
+var WorkflowLogSchema = new Schema5(
   {
     stage: { type: String, required: true, trim: true },
     at: { type: Date, default: Date.now },
-    by: { type: Schema4.Types.ObjectId, ref: "User" },
+    by: { type: Schema5.Types.ObjectId, ref: "User" },
     byName: { type: String, trim: true },
     notes: { type: String, trim: true }
   },
   { _id: false }
 );
-var RepeatLinkSchema = new Schema4(
+var RepeatLinkSchema = new Schema5(
   {
-    complaint: { type: Schema4.Types.ObjectId, ref: "Complaint", required: true },
+    complaint: { type: Schema5.Types.ObjectId, ref: "Complaint", required: true },
     number: { type: String, trim: true },
     basis: [{ type: String, trim: true }]
   },
@@ -815,16 +860,16 @@ var fishboneDefaults = () => FISHBONE_CATEGORIES.reduce((acc, category) => {
   return acc;
 }, {});
 var d6DefaultList = () => D6_DOCUMENT_TYPES.map((docType) => ({ docType, status: "Pending" }));
-var ComplaintSchema = new Schema4(
+var ComplaintSchema = new Schema5(
   {
     number: { type: String, required: true, unique: true, trim: true, index: true },
-    company: { type: Schema4.Types.ObjectId, ref: "Company", required: true, index: true },
+    company: { type: Schema5.Types.ObjectId, ref: "Company", required: true, index: true },
     type: { type: String, enum: COMPLAINT_TYPES, required: true, index: true },
     status: { type: String, enum: COMPLAINT_STATUSES, default: "Open", index: true },
     receivedAt: { type: Date, required: true, index: true },
     source: { type: String, trim: true },
     reportedBy: { type: String, trim: true },
-    priority: { type: Schema4.Types.ObjectId, ref: "Priority", required: true, index: true },
+    priority: { type: Schema5.Types.ObjectId, ref: "Priority", required: true, index: true },
     customer: { type: String, trim: true, index: true },
     customerContact: { type: String, trim: true },
     customerLocation: { type: String, trim: true },
@@ -832,14 +877,14 @@ var ComplaintSchema = new Schema4(
     customerPO: { type: String, trim: true },
     product: { type: String, trim: true, index: true },
     batch: { type: String, trim: true },
-    internalDept: { type: Schema4.Types.ObjectId, ref: "Department" },
-    againstDept: { type: Schema4.Types.ObjectId, ref: "Department" },
-    responsibleDept: { type: Schema4.Types.ObjectId, ref: "Department", index: true },
+    internalDept: { type: Schema5.Types.ObjectId, ref: "Department" },
+    againstDept: { type: Schema5.Types.ObjectId, ref: "Department" },
+    responsibleDept: { type: Schema5.Types.ObjectId, ref: "Department", index: true },
     category: { type: String, trim: true, index: true },
     subCategory: { type: String, trim: true },
     description: { type: String, required: true, trim: true },
-    owner: { type: Schema4.Types.ObjectId, ref: "User", index: true },
-    createdBy: { type: Schema4.Types.ObjectId, ref: "User" },
+    owner: { type: Schema5.Types.ObjectId, ref: "User", index: true },
+    createdBy: { type: Schema5.Types.ObjectId, ref: "User" },
     acknowledgedAt: { type: Date, default: null },
     ackDelayReason: { type: DelayReasonSchema, default: null },
     containmentAt: { type: Date, default: null },
@@ -850,14 +895,14 @@ var ComplaintSchema = new Schema4(
     capaAssignedAt: { type: Date, default: null },
     capaDelayReason: { type: DelayReasonSchema, default: null },
     closedAt: { type: Date, default: null, index: true },
-    closedBy: { type: Schema4.Types.ObjectId, ref: "User" },
+    closedBy: { type: Schema5.Types.ObjectId, ref: "User" },
     closureRemarks: { type: String, trim: true, default: "" },
     reopenedAt: { type: Date, default: null },
     reopenReason: { type: String, trim: true },
     isRepeat: { type: Boolean, default: false, index: true },
     repeatOf: { type: [RepeatLinkSchema], default: [] },
     repeatBasis: { type: String, trim: true, default: "" },
-    repeatReviewedBy: { type: Schema4.Types.ObjectId, ref: "User" },
+    repeatReviewedBy: { type: Schema5.Types.ObjectId, ref: "User" },
     repeatReviewedAt: { type: Date, default: null },
     repeatReviewRemarks: { type: String, trim: true },
     d0: { type: String, trim: true, default: "" },
@@ -883,7 +928,7 @@ var ComplaintSchema = new Schema4(
       systemic: { type: [String], default: [] },
       singleChain: { type: [String], default: [] }
     },
-    fishbone: { type: Schema4.Types.Mixed, default: fishboneDefaults },
+    fishbone: { type: Schema5.Types.Mixed, default: fishboneDefaults },
     d5Occurrence: { type: [ActionRowSchema], default: [] },
     d5Escape: { type: [ActionRowSchema], default: [] },
     d5Systemic: { type: [ActionRowSchema], default: [] },
@@ -913,7 +958,7 @@ var ComplaintSchema = new Schema4(
     overallEffectiveness: {
       result: { type: String, trim: true, default: "" },
       at: { type: Date, default: null },
-      by: { type: Schema4.Types.ObjectId, ref: "User" },
+      by: { type: Schema5.Types.ObjectId, ref: "User" },
       comments: { type: String, trim: true, default: "" }
     },
     signatures: {
@@ -931,23 +976,23 @@ ComplaintSchema.index({ company: 1, product: 1, receivedAt: -1 });
 ComplaintSchema.index({ owner: 1, status: 1 });
 ComplaintSchema.index({ responsibleDept: 1, status: 1 });
 ComplaintSchema.index({ number: "text", description: "text", customer: "text", product: "text", project: "text" });
-var Complaint = mongoose5.models.Complaint || mongoose5.model("Complaint", ComplaintSchema);
+var Complaint = mongoose6.models.Complaint || mongoose6.model("Complaint", ComplaintSchema);
 
 // server/models/masters.ts
-import mongoose6, { Schema as Schema5 } from "mongoose";
-var CategorySchema = new Schema5(
+import mongoose7, { Schema as Schema6 } from "mongoose";
+var CategorySchema = new Schema6(
   {
     name: { type: String, required: true, trim: true },
     complaintType: { type: String, enum: COMPLAINT_TYPES, required: true, index: true },
-    parent: { type: Schema5.Types.ObjectId, ref: "Category", default: null, index: true },
+    parent: { type: Schema6.Types.ObjectId, ref: "Category", default: null, index: true },
     order: { type: Number, default: 0 },
     active: { type: Boolean, default: true, index: true }
   },
   { timestamps: true }
 );
 CategorySchema.index({ complaintType: 1, parent: 1, name: 1 }, { unique: true });
-var Category = mongoose6.models.Category || mongoose6.model("Category", CategorySchema);
-var PrioritySchema = new Schema5(
+var Category = mongoose7.models.Category || mongoose7.model("Category", CategorySchema);
+var PrioritySchema = new Schema6(
   {
     name: { type: String, required: true, unique: true, trim: true, index: true },
     color: { type: String, required: true, trim: true },
@@ -958,8 +1003,8 @@ var PrioritySchema = new Schema5(
   },
   { timestamps: true }
 );
-var Priority = mongoose6.models.Priority || mongoose6.model("Priority", PrioritySchema);
-var DelayReasonSchema2 = new Schema5(
+var Priority = mongoose7.models.Priority || mongoose7.model("Priority", PrioritySchema);
+var DelayReasonSchema2 = new Schema6(
   {
     name: { type: String, required: true, unique: true, trim: true, index: true },
     order: { type: Number, default: 0 },
@@ -967,8 +1012,8 @@ var DelayReasonSchema2 = new Schema5(
   },
   { timestamps: true }
 );
-var DelayReason = mongoose6.models.DelayReason || mongoose6.model("DelayReason", DelayReasonSchema2);
-var RootCauseCategorySchema = new Schema5(
+var DelayReason = mongoose7.models.DelayReason || mongoose7.model("DelayReason", DelayReasonSchema2);
+var RootCauseCategorySchema = new Schema6(
   {
     name: { type: String, required: true, unique: true, trim: true, index: true },
     order: { type: Number, default: 0 },
@@ -976,13 +1021,13 @@ var RootCauseCategorySchema = new Schema5(
   },
   { timestamps: true }
 );
-var RootCauseCategory = mongoose6.models.RootCauseCategory || mongoose6.model("RootCauseCategory", RootCauseCategorySchema);
+var RootCauseCategory = mongoose7.models.RootCauseCategory || mongoose7.model("RootCauseCategory", RootCauseCategorySchema);
 
 // server/models/configuration.ts
-import mongoose7, { Schema as Schema6 } from "mongoose";
-var TATConfigurationSchema = new Schema6(
+import mongoose8, { Schema as Schema7 } from "mongoose";
+var TATConfigurationSchema = new Schema7(
   {
-    company: { type: Schema6.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
+    company: { type: Schema7.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
     ackHours: { type: Number, default: DEFAULT_TAT_CONFIG.ackHours, min: 1 },
     containmentDays: { type: Number, default: DEFAULT_TAT_CONFIG.containmentDays, min: 1 },
     rcaDays: { type: Number, default: DEFAULT_TAT_CONFIG.rcaDays, min: 1 },
@@ -997,8 +1042,8 @@ var TATConfigurationSchema = new Schema6(
   },
   { timestamps: true }
 );
-var TATConfiguration = mongoose7.models.TATConfiguration || mongoose7.model("TATConfiguration", TATConfigurationSchema);
-var EscalationLevelSchema = new Schema6(
+var TATConfiguration = mongoose8.models.TATConfiguration || mongoose8.model("TATConfiguration", TATConfigurationSchema);
+var EscalationLevelSchema = new Schema7(
   {
     level: { type: Number, required: true, min: 1 },
     name: { type: String, required: true, trim: true },
@@ -1006,19 +1051,19 @@ var EscalationLevelSchema = new Schema6(
   },
   { _id: false }
 );
-var EscalationConfigurationSchema = new Schema6(
+var EscalationConfigurationSchema = new Schema7(
   {
-    company: { type: Schema6.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
+    company: { type: Schema7.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
     levels: { type: [EscalationLevelSchema], default: [] },
     reminderPercentages: { type: [Number], default: [...DEFAULT_REMINDER_PERCENTAGES] },
     active: { type: Boolean, default: true }
   },
   { timestamps: true }
 );
-var EscalationConfiguration = mongoose7.models.EscalationConfiguration || mongoose7.model("EscalationConfiguration", EscalationConfigurationSchema);
-var NumberingConfigurationSchema = new Schema6(
+var EscalationConfiguration = mongoose8.models.EscalationConfiguration || mongoose8.model("EscalationConfiguration", EscalationConfigurationSchema);
+var NumberingConfigurationSchema = new Schema7(
   {
-    company: { type: Schema6.Types.ObjectId, ref: "Company", required: true, unique: true, index: true },
+    company: { type: Schema7.Types.ObjectId, ref: "Company", required: true, unique: true, index: true },
     prefix: { type: String, required: true, trim: true },
     sequencePadding: { type: Number, default: 5, min: 3, max: 10 },
     capaSequencePadding: { type: Number, default: 2, min: 2, max: 6 },
@@ -1027,18 +1072,18 @@ var NumberingConfigurationSchema = new Schema6(
   },
   { timestamps: true }
 );
-var NumberingConfiguration = mongoose7.models.NumberingConfiguration || mongoose7.model("NumberingConfiguration", NumberingConfigurationSchema);
+var NumberingConfiguration = mongoose8.models.NumberingConfiguration || mongoose8.model("NumberingConfiguration", NumberingConfigurationSchema);
 
 // server/models/Company.ts
-import mongoose8, { Schema as Schema7 } from "mongoose";
-var CompanyLogoSchema = new Schema7(
+import mongoose9, { Schema as Schema8 } from "mongoose";
+var CompanyLogoSchema = new Schema8(
   {
     secureUrl: { type: String, trim: true },
     publicId: { type: String, trim: true }
   },
   { _id: false }
 );
-var CompanySchema = new Schema7(
+var CompanySchema = new Schema8(
   {
     name: { type: String, required: true, trim: true },
     code: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
@@ -1051,7 +1096,7 @@ var CompanySchema = new Schema7(
   },
   { timestamps: true }
 );
-var Company = mongoose8.models.Company || mongoose8.model("Company", CompanySchema);
+var Company = mongoose9.models.Company || mongoose9.model("Company", CompanySchema);
 
 // server/services/config.service.ts
 async function resolveTatConfig(companyId) {
@@ -1354,27 +1399,19 @@ function delayGaps(overdue, delay2, allowedReasons) {
   return gaps;
 }
 
-// server/models/Employee.ts
-import mongoose9, { Schema as Schema8 } from "mongoose";
-var EmployeeSchema = new Schema8(
+// server/models/Department.ts
+import mongoose10, { Schema as Schema9 } from "mongoose";
+var DepartmentSchema = new Schema9(
   {
-    employeeCode: { type: String, required: true, uppercase: true, trim: true, index: true },
-    name: { type: String, required: true, trim: true },
-    email: { type: String, lowercase: true, trim: true, index: true },
-    designation: { type: String, trim: true },
-    department: { type: Schema8.Types.ObjectId, ref: "Department", required: true, index: true },
-    company: { type: Schema8.Types.ObjectId, ref: "Company", required: true, index: true },
-    managerName: { type: String, trim: true },
-    managerEmail: { type: String, lowercase: true, trim: true },
-    hodName: { type: String, trim: true },
-    hodEmail: { type: String, lowercase: true, trim: true },
-    linkedUser: { type: Schema8.Types.ObjectId, ref: "User", index: true },
+    name: { type: String, required: true, trim: true, index: true },
+    code: { type: String, trim: true },
+    company: { type: Schema9.Types.ObjectId, ref: "Company", index: true },
     active: { type: Boolean, default: true, index: true }
   },
   { timestamps: true }
 );
-EmployeeSchema.index({ employeeCode: 1, company: 1 }, { unique: true });
-var Employee = mongoose9.models.Employee || mongoose9.model("Employee", EmployeeSchema);
+DepartmentSchema.index({ name: 1, company: 1 }, { unique: true });
+var Department = mongoose10.models.Department || mongoose10.model("Department", DepartmentSchema);
 
 // server/services/mappers.ts
 function id(value) {
@@ -1527,15 +1564,15 @@ function toDomainActor(user, department) {
 }
 
 // server/models/Notification.ts
-import mongoose10, { Schema as Schema9 } from "mongoose";
-var NotificationSchema = new Schema9(
+import mongoose11, { Schema as Schema10 } from "mongoose";
+var NotificationSchema = new Schema10(
   {
-    recipient: { type: Schema9.Types.ObjectId, ref: "User", required: true, index: true },
+    recipient: { type: Schema10.Types.ObjectId, ref: "User", required: true, index: true },
     message: { type: String, required: true, trim: true },
     category: { type: String, enum: NOTIFICATION_CATEGORIES, default: "system", index: true },
     priority: { type: String, enum: ["normal", "high"], default: "normal" },
     entityType: { type: String, trim: true },
-    entityId: { type: Schema9.Types.ObjectId },
+    entityId: { type: Schema10.Types.ObjectId },
     link: { type: String, trim: true },
     read: { type: Boolean, default: false, index: true },
     readAt: { type: Date, default: null }
@@ -1543,7 +1580,7 @@ var NotificationSchema = new Schema9(
   { timestamps: true }
 );
 NotificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
-var Notification = mongoose10.models.Notification || mongoose10.model("Notification", NotificationSchema);
+var Notification = mongoose11.models.Notification || mongoose11.model("Notification", NotificationSchema);
 
 // server/services/notification.service.ts
 async function notify(input) {
@@ -1854,8 +1891,8 @@ function getSmtpStatus() {
 import { Types } from "mongoose";
 
 // server/models/EmailTemplate.ts
-import mongoose11, { Schema as Schema10 } from "mongoose";
-var EmailTemplateSchema = new Schema10(
+import mongoose12, { Schema as Schema11 } from "mongoose";
+var EmailTemplateSchema = new Schema11(
   {
     templateKey: {
       type: String,
@@ -1875,12 +1912,12 @@ var EmailTemplateSchema = new Schema10(
     allowedRolesToReceive: [{ type: String }],
     ccRules: [{ type: String }],
     bccRules: [{ type: String }],
-    createdBy: { type: Schema10.Types.ObjectId, ref: "User" },
-    updatedBy: { type: Schema10.Types.ObjectId, ref: "User" }
+    createdBy: { type: Schema11.Types.ObjectId, ref: "User" },
+    updatedBy: { type: Schema11.Types.ObjectId, ref: "User" }
   },
   { timestamps: true }
 );
-var EmailTemplate = mongoose11.models.EmailTemplate || mongoose11.model("EmailTemplate", EmailTemplateSchema);
+var EmailTemplate = mongoose12.models.EmailTemplate || mongoose12.model("EmailTemplate", EmailTemplateSchema);
 
 // server/lib/email-template-defaults.ts
 var heading = (text2) => `<h2 style="margin:0 0 14px;font-size:18px;font-weight:700;color:#1e293b;">${text2}</h2>`;
@@ -1910,7 +1947,7 @@ var DEFAULT_EMAIL_TEMPLATES = [
       `${greeting()}${heading("Password Reset Request")}<p style="margin:0 0 12px;">A password reset request was received for your account. Use the secure button below to set a new password. This link is valid for <strong>{{expiresInHours}} hour(s)</strong>.</p>` + emailButton("{{resetUrl}}", "Reset Password") + `<p style="margin:12px 0 0;font-size:12px;color:#64748b;">If you did not request a password reset, you can safely ignore this email. Your current password remains unchanged.</p>` + closing()
     ),
     textBody: "Hello {{recipientName}},\n\nA password reset request was received for your account. Use the secure link below to reset your password. It expires in {{expiresInHours}} hour(s):\n\n{{resetUrl}}\n\nIf you did not request this, please ignore this email.\n\nRegards,\n{{companyName}}",
-    supportedVariables: ["recipientName", "resetUrl", "expiresInHours", "companyName", "appUrl"]
+    supportedVariables: ["recipientName", "username", "tempPassword", "resetUrl", "expiresInHours", "companyName", "appUrl"]
   },
   {
     templateKey: "auth-password-changed",
@@ -2479,8 +2516,8 @@ async function previewEmailTemplate(templateIdOrTrigger, overrides) {
 import { Types as Types2 } from "mongoose";
 
 // server/models/EmailLog.ts
-import mongoose12, { Schema as Schema11 } from "mongoose";
-var EmailLogSchema = new Schema11(
+import mongoose13, { Schema as Schema12 } from "mongoose";
+var EmailLogSchema = new Schema12(
   {
     templateKey: { type: String, index: true },
     triggerEvent: { type: String, required: true, index: true },
@@ -2495,10 +2532,10 @@ var EmailLogSchema = new Schema11(
       index: true
     },
     errorMessage: { type: String },
-    relatedComplaintId: { type: Schema11.Types.ObjectId, ref: "Complaint", index: true },
-    relatedCapaId: { type: Schema11.Types.ObjectId, ref: "Capa", index: true },
+    relatedComplaintId: { type: Schema12.Types.ObjectId, ref: "Complaint", index: true },
+    relatedCapaId: { type: Schema12.Types.ObjectId, ref: "Capa", index: true },
     sentBySystem: { type: Boolean, default: true },
-    payload: { type: Schema11.Types.Mixed },
+    payload: { type: Schema12.Types.Mixed },
     // Safe context for retry, NEVER credentials
     dedupeKey: { type: String, sparse: true, index: true },
     attemptCount: { type: Number, default: 1 }
@@ -2506,7 +2543,7 @@ var EmailLogSchema = new Schema11(
   { timestamps: true }
 );
 EmailLogSchema.index({ createdAt: -1 });
-var EmailLog = mongoose12.models.EmailLog || mongoose12.model("EmailLog", EmailLogSchema);
+var EmailLog = mongoose13.models.EmailLog || mongoose13.model("EmailLog", EmailLogSchema);
 
 // server/services/email-log.service.ts
 function sanitizePayload(rawPayload) {
@@ -2616,6 +2653,27 @@ function normalizePortalLinks(data, appUrl) {
   }
   return normalized;
 }
+function appendTemporaryPasswordNotice(html, text2, data) {
+  const tempPassword = typeof data.tempPassword === "string" ? data.tempPassword : "";
+  if (!tempPassword) return { html, text: text2 };
+  const resetUrl = typeof data.resetUrl === "string" ? data.resetUrl : "";
+  const safePassword = escapeHtml(tempPassword);
+  const safeResetUrl = escapeHtml(resetUrl);
+  const noticeHtml = `
+              <div style="margin:16px 0;padding:14px 16px;background-color:#fff7ed;border-left:3px solid #f97316;border-radius:4px;color:#7c2d12;font-size:13px;line-height:1.5;">
+                <strong>Temporary password:</strong>
+                <div style="margin:8px 0 10px;font-family:Consolas,Menlo,monospace;font-size:16px;font-weight:700;letter-spacing:0.04em;color:#1e293b;">${safePassword}</div>
+                Use this temporary password only if you need to sign in before creating your new password. Create a new password from the reset link${safeResetUrl ? `: <a href="${safeResetUrl}" target="_blank" style="color:#E31E25;font-weight:700;">${safeResetUrl}</a>` : "."}
+              </div>`;
+  const footerMarker = "          <!-- Footer -->";
+  const nextHtml = html.includes(footerMarker) ? html.replace(footerMarker, `${noticeHtml}
+${footerMarker}`) : `${html}${noticeHtml}`;
+  const nextText = `${text2}
+
+Temporary password: ${tempPassword}${resetUrl ? `
+Create a new password: ${resetUrl}` : ""}`;
+  return { html: nextHtml, text: nextText };
+}
 async function sendTemplatedEmail(input) {
   if (input.dedupeKey) {
     const alreadySent = await hasDedupeKeyBeenSent(input.dedupeKey);
@@ -2678,6 +2736,7 @@ async function sendTemplatedEmail(input) {
   const renderedSubject = renderTemplate(template.subject, mergedData).rendered;
   const renderedHtml = renderTemplate(template.htmlBody, mergedData).rendered;
   const renderedText = renderTemplate(template.textBody, mergedData).rendered;
+  const finalBody = appendTemporaryPasswordNotice(renderedHtml, renderedText, mergedData);
   if (!isSmtpConfigured()) {
     const skippedLog = await writeEmailLog({
       templateKey: template.templateKey,
@@ -2704,8 +2763,8 @@ async function sendTemplatedEmail(input) {
       cc: input.cc && input.cc.length > 0 ? input.cc : void 0,
       bcc: input.bcc && input.bcc.length > 0 ? input.bcc : void 0,
       subject: renderedSubject,
-      html: renderedHtml,
-      text: renderedText
+      html: finalBody.html,
+      text: finalBody.text
     });
     const sentLog = await writeEmailLog({
       templateKey: template.templateKey,
@@ -2943,17 +3002,17 @@ function formatCapaNumber(complaintNumber, index, padding = 2) {
 }
 
 // server/models/Counter.ts
-import mongoose13, { Schema as Schema12 } from "mongoose";
-var CounterSchema = new Schema12(
+import mongoose14, { Schema as Schema13 } from "mongoose";
+var CounterSchema = new Schema13(
   {
     key: { type: String, required: true, unique: true, trim: true, index: true },
-    company: { type: Schema12.Types.ObjectId, ref: "Company", index: true },
+    company: { type: Schema13.Types.ObjectId, ref: "Company", index: true },
     financialYear: { type: String, trim: true },
     sequence: { type: Number, required: true, default: 0 }
   },
   { timestamps: true }
 );
-var Counter = mongoose13.models.Counter || mongoose13.model("Counter", CounterSchema);
+var Counter = mongoose14.models.Counter || mongoose14.model("Counter", CounterSchema);
 
 // server/services/numbering.service.ts
 var mongoCounterStore = {
@@ -2979,17 +3038,17 @@ async function nextCapaNumber(companyId, complaintNumber, sequence) {
 }
 
 // server/models/AuditLog.ts
-import mongoose14, { Schema as Schema13 } from "mongoose";
-var AuditLogSchema = new Schema13(
+import mongoose15, { Schema as Schema14 } from "mongoose";
+var AuditLogSchema = new Schema14(
   {
-    actor: { type: Schema13.Types.ObjectId, ref: "User", index: true },
+    actor: { type: Schema14.Types.ObjectId, ref: "User", index: true },
     actorName: { type: String, trim: true },
     action: { type: String, required: true, trim: true, index: true },
     entity: { type: String, required: true, trim: true, index: true },
     entityId: { type: String, trim: true, index: true },
-    before: Schema13.Types.Mixed,
-    after: Schema13.Types.Mixed,
-    metadata: Schema13.Types.Mixed
+    before: Schema14.Types.Mixed,
+    after: Schema14.Types.Mixed,
+    metadata: Schema14.Types.Mixed
   },
   { timestamps: true }
 );
@@ -2998,7 +3057,7 @@ AuditLogSchema.index({ entityId: 1, createdAt: -1 });
 AuditLogSchema.index({ entity: 1, createdAt: -1 });
 AuditLogSchema.index({ action: 1, createdAt: -1 });
 AuditLogSchema.index({ actor: 1, createdAt: -1 });
-var AuditLog = mongoose14.models.AuditLog || mongoose14.model("AuditLog", AuditLogSchema);
+var AuditLog = mongoose15.models.AuditLog || mongoose15.model("AuditLog", AuditLogSchema);
 
 // server/services/audit.service.ts
 async function writeAudit(input) {
@@ -3015,6 +3074,7 @@ async function writeAudit(input) {
 }
 
 // server/services/complaint.service.ts
+var COMPLAINT_CREATED_FIXED_CC = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
 function gapsToIssues(gaps) {
   return gaps.map((gap) => ({ field: gap.field, section: gap.section, message: gap.hint ? `${gap.field} \u2014 ${gap.hint}` : gap.field }));
 }
@@ -3143,14 +3203,26 @@ async function createComplaint(input, user) {
   });
   const emailRecipients = await resolveRecipients({
     complaintId: doc._id,
-    targetRoles: ["Complaint Owner", "Coordinator", "Department Head", "Quality Head"]
+    targetRoles: ["Complaint Owner"]
+  });
+  const emailCc = await resolveRecipients({
+    complaintId: doc._id,
+    targetRoles: ["Manager", "Department Head"],
+    explicitEmails: COMPLAINT_CREATED_FIXED_CC
   });
   if (emailRecipients.length > 0) {
+    const [ownerUser, responsibleDepartment] = await Promise.all([
+      doc.owner ? User.findById(doc.owner).select("name email").lean() : null,
+      doc.responsibleDept ? Department.findById(doc.responsibleDept).select("name").lean() : null
+    ]);
+    const cc = emailCc.filter((email) => !emailRecipients.includes(email));
     await sendTemplatedEmail({
       triggerEvent: "COMPLAINT_CREATED",
       recipients: emailRecipients,
+      cc,
       relatedComplaintId: doc._id,
       data: {
+        recipientName: ownerUser?.name ?? "Complaint Owner",
         complaintNumber: doc.number,
         complaintTitle: doc.description || doc.number,
         complaintType: doc.type,
@@ -3158,6 +3230,8 @@ async function createComplaint(input, user) {
         partName: doc.product || "Component",
         partNumber: "N/A",
         priority: String(doc.priority || "Standard"),
+        departmentName: responsibleDepartment?.name ?? "",
+        coordinatorName: actor.name,
         ackDueDate: "Within 24h",
         actionUrl: `/complaints/${doc._id}`
       }
@@ -4530,8 +4604,8 @@ import { Router as Router2 } from "express";
 import { z as z4 } from "zod";
 
 // server/models/Attachment.ts
-import mongoose15, { Schema as Schema14 } from "mongoose";
-var AttachmentSchema = new Schema14(
+import mongoose16, { Schema as Schema15 } from "mongoose";
+var AttachmentSchema = new Schema15(
   {
     publicId: { type: String, required: true, trim: true, index: true },
     secureUrl: { type: String, required: true, trim: true },
@@ -4542,16 +4616,16 @@ var AttachmentSchema = new Schema14(
     width: Number,
     height: Number,
     entityType: { type: String, required: true, trim: true, index: true },
-    entityId: { type: Schema14.Types.ObjectId, required: true, index: true },
+    entityId: { type: Schema15.Types.ObjectId, required: true, index: true },
     purpose: { type: String, enum: ATTACHMENT_PURPOSES, required: true, index: true },
-    company: { type: Schema14.Types.ObjectId, ref: "Company", index: true },
-    uploadedBy: { type: Schema14.Types.ObjectId, ref: "User", index: true },
+    company: { type: Schema15.Types.ObjectId, ref: "Company", index: true },
+    uploadedBy: { type: Schema15.Types.ObjectId, ref: "User", index: true },
     uploadedAt: { type: Date, default: Date.now }
   },
   { timestamps: true }
 );
 AttachmentSchema.index({ entityType: 1, entityId: 1, purpose: 1 });
-var Attachment = mongoose15.models.Attachment || mongoose15.model("Attachment", AttachmentSchema);
+var Attachment = mongoose16.models.Attachment || mongoose16.model("Attachment", AttachmentSchema);
 
 // server/services/attachment.service.ts
 import { v2 as cloudinary } from "cloudinary";
@@ -4989,21 +5063,29 @@ authRouter.post(
     const input = forgotPasswordSchema.parse(req.body);
     await connectDB();
     const result = await createPasswordResetToken(input.emailOrUsername);
-    if (result?.user.email) {
-      const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
-      const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
-      await sendTemplatedEmail({
-        triggerEvent: "PASSWORD_RESET_REQUESTED",
-        recipients: [result.user.email],
-        data: {
-          recipientName: result.user.name,
-          resetUrl,
-          expiresInHours: "1"
-        },
-        sentBySystem: true
-      });
-      await writeAudit({ action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: String(result.user._id) });
+    if (!result?.user) {
+      throw httpError(
+        404,
+        result?.employeeExists ? "This email exists in the employee master, but no portal login user is linked to it. Please ask the administrator to create or link a System User." : "No portal login user was found for this username or email."
+      );
     }
+    if (!result.user.email) throw httpError(422, "This user account does not have an email address configured.");
+    const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
+    const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
+    const email = await sendTemplatedEmail({
+      triggerEvent: "PASSWORD_RESET_REQUESTED",
+      recipients: [result.user.email],
+      data: {
+        recipientName: result.user.name,
+        resetUrl,
+        expiresInHours: "1"
+      },
+      sentBySystem: true
+    });
+    if (email.status !== "sent") {
+      throw httpError(502, email.message || "Reset email could not be sent. Please contact the administrator.");
+    }
+    await writeAudit({ action: "PASSWORD_RESET_REQUESTED", entity: "User", entityId: String(result.user._id) });
     return ok(res, { requested: true });
   })
 );
@@ -5777,21 +5859,21 @@ var overallEffectivenessSchema = z9.object({
 });
 
 // server/models/ComplaintNote.ts
-import mongoose16, { Schema as Schema15 } from "mongoose";
-var ComplaintNoteSchema = new Schema15(
+import mongoose17, { Schema as Schema16 } from "mongoose";
+var ComplaintNoteSchema = new Schema16(
   {
-    complaint: { type: Schema15.Types.ObjectId, ref: "Complaint", required: true, index: true },
-    company: { type: Schema15.Types.ObjectId, ref: "Company", required: true, index: true },
+    complaint: { type: Schema16.Types.ObjectId, ref: "Complaint", required: true, index: true },
+    company: { type: Schema16.Types.ObjectId, ref: "Company", required: true, index: true },
     kind: { type: String, enum: NOTE_KINDS, default: "Note", index: true },
     referenceDate: { type: Date, default: null },
     content: { type: String, required: true, trim: true },
-    createdBy: { type: Schema15.Types.ObjectId, ref: "User", index: true },
+    createdBy: { type: Schema16.Types.ObjectId, ref: "User", index: true },
     createdByName: { type: String, trim: true }
   },
   { timestamps: true }
 );
 ComplaintNoteSchema.index({ complaint: 1, createdAt: -1 });
-var ComplaintNote = mongoose16.models.ComplaintNote || mongoose16.model("ComplaintNote", ComplaintNoteSchema);
+var ComplaintNote = mongoose17.models.ComplaintNote || mongoose17.model("ComplaintNote", ComplaintNoteSchema);
 
 // server/routes/complaint.routes.ts
 var complaintRouter = Router6();
@@ -6262,7 +6344,7 @@ configurationRouter.delete(
 
 // server/routes/health.routes.ts
 import { Router as Router8 } from "express";
-import mongoose17 from "mongoose";
+import mongoose18 from "mongoose";
 var healthRouter = Router8();
 healthRouter.get(
   "/",
@@ -6276,7 +6358,7 @@ healthRouter.get(
   "/db",
   asyncHandler(async (_req, res) => {
     await connectDB();
-    return ok(res, { status: mongoose17.connection.readyState === 1 ? "connected" : "not-connected" });
+    return ok(res, { status: mongoose18.connection.readyState === 1 ? "connected" : "not-connected" });
   })
 );
 
@@ -6286,20 +6368,6 @@ import { z as z14 } from "zod";
 
 // server/services/import.service.ts
 import { Types as Types10 } from "mongoose";
-
-// server/models/Department.ts
-import mongoose18, { Schema as Schema16 } from "mongoose";
-var DepartmentSchema = new Schema16(
-  {
-    name: { type: String, required: true, trim: true, index: true },
-    code: { type: String, trim: true },
-    company: { type: Schema16.Types.ObjectId, ref: "Company", index: true },
-    active: { type: Boolean, default: true, index: true }
-  },
-  { timestamps: true }
-);
-DepartmentSchema.index({ name: 1, company: 1 }, { unique: true });
-var Department = mongoose18.models.Department || mongoose18.model("Department", DepartmentSchema);
 
 // server/services/upload.service.ts
 import { v2 as cloudinary2 } from "cloudinary";
@@ -7348,6 +7416,9 @@ masterAdminRouter.use(requireUser);
 function escapeRegex(term) {
   return term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+function createTemporaryPassword() {
+  return `OnePWS${randomToken(4)}A1`;
+}
 masterAdminRouter.get(
   "/employees",
   requirePermission("view.company"),
@@ -7455,9 +7526,11 @@ masterAdminRouter.post(
   requirePermission("*"),
   asyncHandler(async (req, res) => {
     await connectDB();
-    const user = await User.findById(req.params.id).select("+passwordResetTokenHash +passwordResetExpires +failedLoginCount +lockedUntil");
+    const user = await User.findById(req.params.id).select("+passwordHash +passwordResetTokenHash +passwordResetExpires +failedLoginCount +lockedUntil");
     if (!user) throw httpError(404, "User not found");
     const token = randomToken();
+    const temporaryPassword = createTemporaryPassword();
+    user.passwordHash = await hashPassword(temporaryPassword);
     user.passwordResetTokenHash = sha256(token);
     user.passwordResetExpires = new Date(Date.now() + 60 * 60 * 1e3);
     user.forcePasswordChange = true;
@@ -7472,7 +7545,7 @@ masterAdminRouter.post(
       const result = await sendTemplatedEmail({
         triggerEvent: "PASSWORD_RESET_REQUESTED",
         recipients: [user.email],
-        data: { recipientName: user.name, resetUrl, expiresInHours: "1" },
+        data: { recipientName: user.name, username: user.username, tempPassword: temporaryPassword, resetUrl, expiresInHours: "1" },
         sentBySystem: false
       });
       emailStatus = result.status;

@@ -4,6 +4,7 @@ import { Types } from "mongoose";
 import type { ApiRole, ApiUser } from "@shared/types/api";
 import { getEnv } from "../config/env";
 import "../models/Role";
+import { Employee } from "../models/Employee";
 import { User, type UserDocument } from "../models/User";
 import { httpError } from "../utils/http";
 import { randomToken, sha256 } from "../utils/crypto";
@@ -116,11 +117,34 @@ export async function authenticate(username: string, password: string) {
 }
 
 export async function createPasswordResetToken(emailOrUsername: string) {
-  const query = emailOrUsername.includes("@")
-    ? { email: emailOrUsername.toLowerCase(), active: true }
-    : { username: emailOrUsername.toLowerCase(), active: true };
-  const user = await User.findOne(query).select("+passwordResetTokenHash +passwordResetExpires");
-  if (!user) return null;
+  const lookup = emailOrUsername.trim().toLowerCase();
+  const user = await User.findOne({
+    active: true,
+    $or: [{ email: lookup }, { username: lookup }]
+  }).select("+passwordResetTokenHash +passwordResetExpires");
+  if (!user) {
+    const employee = lookup.includes("@")
+      ? await Employee.findOne({
+          active: { $ne: false },
+          $or: [{ email: lookup }, { managerEmail: lookup }, { hodEmail: lookup }]
+        })
+          .select("linkedUser")
+          .lean()
+      : null;
+    if (employee?.linkedUser) {
+      const linkedUser = await User.findOne({ _id: employee.linkedUser, active: true }).select(
+        "+passwordResetTokenHash +passwordResetExpires"
+      );
+      if (linkedUser) {
+        const token = randomToken();
+        linkedUser.passwordResetTokenHash = sha256(token);
+        linkedUser.passwordResetExpires = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+        await linkedUser.save();
+        return { user: linkedUser, token };
+      }
+    }
+    return { user: null, token: null, employeeExists: Boolean(employee) };
+  }
 
   const token = randomToken();
   user.passwordResetTokenHash = sha256(token);
