@@ -5070,8 +5070,7 @@ authRouter.post(
       );
     }
     if (!result.user.email) throw httpError(422, "This user account does not have an email address configured.");
-    const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
-    const resetUrl = new URL(`/reset-password?token=${result.token}`, baseUrl).toString();
+    const resetUrl = new URL(`/reset-password?token=${result.token}`, getAppUrl()).toString();
     const email = await sendTemplatedEmail({
       triggerEvent: "PASSWORD_RESET_REQUESTED",
       recipients: [result.user.email],
@@ -7540,8 +7539,7 @@ masterAdminRouter.post(
     let emailed = false;
     let emailStatus = "skipped";
     if (user.email) {
-      const baseUrl = getEnv().APP_BASE_URL || `${req.protocol}://${req.get("host") || "localhost:5173"}`;
-      const resetUrl = new URL(`/reset-password?token=${token}`, baseUrl).toString();
+      const resetUrl = new URL(`/reset-password?token=${token}`, getAppUrl()).toString();
       const result = await sendTemplatedEmail({
         triggerEvent: "PASSWORD_RESET_REQUESTED",
         recipients: [user.email],

@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Eye, EyeOff, LogIn } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -7,6 +7,7 @@ import { loginSchema, type LoginInput } from "@shared/schemas/auth";
 import { AuthLayout } from "@/layouts/AuthLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { useLogin } from "@/hooks/useAuth";
 
 // Only the username is kept. The password stays with the browser's own password manager
@@ -33,7 +34,6 @@ function writeRememberedUsername(username: string | null) {
 }
 
 export function LoginPage() {
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberedUsername] = useState(readRememberedUsername);
   const [remember, setRemember] = useState(() => Boolean(rememberedUsername));
   const navigate = useNavigate();
@@ -84,22 +84,7 @@ export function LoginPage() {
           </label>
           <label className="block text-sm font-semibold text-slate-700">
             Password
-            <div className="relative mt-1.5">
-              <Input
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                className="pr-11"
-                {...form.register("password")}
-              />
-              <button
-                type="button"
-                className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-md text-slate-500 hover:bg-slate-100"
-                onClick={() => setShowPassword((value) => !value)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
-              >
-                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <PasswordInput className="mt-1.5" autoComplete="current-password" {...form.register("password")} />
           </label>
         </div>
         {form.formState.errors.username || form.formState.errors.password || login.error ? (

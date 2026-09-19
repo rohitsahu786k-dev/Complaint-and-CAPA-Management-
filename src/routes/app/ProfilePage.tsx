@@ -2,7 +2,7 @@ import { AlertTriangle, KeyRound } from "lucide-react";
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/toast-context";
 import { useChangePassword, useCurrentUser } from "@/hooks/useAuth";
@@ -70,9 +70,8 @@ export function ProfilePage() {
           ) : null}
           <label className="mt-4 block text-sm font-semibold text-slate-700">
             Current password
-            <Input
+            <PasswordInput
               className="mt-1.5"
-              type="password"
               autoComplete="current-password"
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
@@ -81,9 +80,8 @@ export function ProfilePage() {
           </label>
           <label className="mt-4 block text-sm font-semibold text-slate-700">
             New password
-            <Input
+            <PasswordInput
               className="mt-1.5"
-              type="password"
               autoComplete="new-password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}

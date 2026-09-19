@@ -10,16 +10,20 @@ export function ForgotPasswordPage() {
   const [value, setValue] = useState("");
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [sending, setSending] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setDone(false);
     setError("");
+    setSending(true);
     try {
       await api("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ emailOrUsername: value }) });
       setDone(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Reset email could not be sent.");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -44,9 +48,9 @@ export function ForgotPasswordPage() {
             {error}
           </div>
         ) : null}
-        <Button className="mt-6 w-full">
+        <Button className="mt-6 w-full" disabled={sending}>
           <Mail className="h-4 w-4" />
-          Send reset link
+          {sending ? "Sending reset link..." : "Send reset link"}
         </Button>
         <Link to="/login" className="mt-4 block text-center text-sm font-semibold text-slate-600 hover:text-brand-red">
           Back to login
