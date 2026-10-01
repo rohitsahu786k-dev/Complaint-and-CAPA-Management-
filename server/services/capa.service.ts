@@ -56,9 +56,11 @@ export async function listCapas(query: CapaListQuery, user: ApiUser | undefined)
     filter.status = { $nin: ["Closed", "Completed"] };
   }
   if (query.dueFrom || query.dueTo) {
+    const dueTo = query.dueTo ? new Date(query.dueTo) : undefined;
+    dueTo?.setHours(23, 59, 59, 999);
     filter.dueDate = {
       ...(query.dueFrom ? { $gte: query.dueFrom } : {}),
-      ...(query.dueTo ? { $lte: query.dueTo } : {})
+      ...(dueTo ? { $lte: dueTo } : {})
     };
   }
   if (query.search) {

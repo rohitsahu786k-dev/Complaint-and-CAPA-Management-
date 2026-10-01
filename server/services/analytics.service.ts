@@ -45,6 +45,21 @@ const COMPLAINT_PROJECTION =
   "number company type status receivedAt closedAt priority owner responsibleDept customer product category rootCauseCategory d4Occurrence isRepeat repeatOf acknowledgedAt containmentAt rcaAt capaAssignedAt ackDelayReason contDelayReason rcaDelayReason capaDelayReason";
 
 export type AnalyticsScope = { filter: Record<string, unknown>; companyId: string | null };
+type DateRange = { startDate?: Date; endDate?: Date };
+
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function rangeFilter(range?: DateRange) {
+  if (!range?.startDate && !range?.endDate) return {};
+  return {
+    ...(range.startDate ? { $gte: range.startDate } : {}),
+    ...(range.endDate ? { $lte: endOfDay(range.endDate) } : {})
+  };
+}
 
 /** Company scope is resolved from server-side permissions, never from a client flag. */
 export async function resolveScope(user: ApiUser | undefined, companyId?: string): Promise<AnalyticsScope> {
@@ -135,10 +150,14 @@ function stageStates(rows: ComplaintRow[], multipliers: Map<string, { tatMultipl
 
 /* ------------------------------------------------------------------ dashboard */
 
-export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: string) {
+export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
-  const [rows, multipliers] = await Promise.all([loadComplaints(scope), priorityMultipliers()]);
+  const dateFilter = rangeFilter(range);
+  const [rows, multipliers] = await Promise.all([
+    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
+    priorityMultipliers()
+  ]);
   const now = new Date();
   const states = stageStates(rows, multipliers, config, now);
 
@@ -166,7 +185,9 @@ export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: 
   const averageClosureDays =
     closureDurations.length === 0 ? 0 : Math.round((closureDurations.reduce((sum, days) => sum + days, 0) / closureDurations.length) * 10) / 10;
 
-  const capaRows = await Capa.find(scope.filter).select("status dueDate effectiveness completedAt owner").lean();
+  const capaRows = await Capa.find({ ...scope.filter, ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}) })
+    .select("status dueDate effectiveness completedAt owner")
+    .lean();
   const capaClosed = capaRows.filter((capa) => capa.status === "Closed" || capa.status === "Completed").length;
   const capaOverdue = capaRows.filter(
     (capa) => capa.status !== "Closed" && capa.status !== "Completed" && capa.dueDate && new Date(capa.dueDate) < now
@@ -247,10 +268,14 @@ export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: 
 
 /* ------------------------------------------------------------------ TAT board */
 
-export async function tatAnalytics(user: ApiUser | undefined, companyId?: string) {
+export async function tatAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
-  const [rows, multipliers] = await Promise.all([loadComplaints(scope), priorityMultipliers()]);
+  const dateFilter = rangeFilter(range);
+  const [rows, multipliers] = await Promise.all([
+    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
+    priorityMultipliers()
+  ]);
   const now = new Date();
   const states = stageStates(rows, multipliers, config, now);
 
@@ -338,10 +363,11 @@ export async function tatAnalytics(user: ApiUser | undefined, companyId?: string
 
 /* ------------------------------------------------------------------ CAPA board */
 
-export async function capaAnalytics(user: ApiUser | undefined, companyId?: string) {
+export async function capaAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange) {
   const scope = await resolveScope(user, companyId);
   const now = new Date();
-  const capas = await Capa.find(scope.filter)
+  const dateFilter = rangeFilter(range);
+  const capas = await Capa.find({ ...scope.filter, ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}) })
     .select("number status dueDate completedAt effectiveness owner type evidenceReview createdAt")
     .populate("owner", "name")
     .lean();

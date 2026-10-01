@@ -205,7 +205,7 @@ export function AppShell() {
   );
 
   return (
-    <div className="min-h-screen overflow-x-hidden bg-slate-50">
+    <div className="min-h-screen bg-slate-50">
       <div className="fixed inset-y-0 left-0 z-40 hidden lg:block">{sidebar}</div>
 
       <div className={cn("flex min-h-screen flex-col transition-[padding]", collapsed ? "lg:pl-20" : "lg:pl-64")}>

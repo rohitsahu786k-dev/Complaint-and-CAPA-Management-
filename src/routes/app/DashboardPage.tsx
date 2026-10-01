@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, ClipboardList, Clock3, Repeat2, ShieldChec
 import { CategoryBarChart, DonutChart, TrendChart } from "@/components/charts/Charts";
 import { KpiCard, SectionCard } from "@/components/ui/Cards";
 import { DataTable, type Column } from "@/components/ui/DataTable";
+import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { Field, Select, Spinner } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -16,8 +17,10 @@ export function DashboardPage() {
   const permissions = usePermissions();
   const navigate = useNavigate();
   const [company, setCompany] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const master = useMasterBootstrap();
-  const { data, isLoading, error } = useDashboard(company || undefined);
+  const { data, isLoading, error } = useDashboard(company || undefined, { startDate, endDate });
 
   const companies = master.data?.companies ?? [];
   const showCompanyFilter = companies.length > 1 && (permissions.can("view.all") || (permissions.user?.companyIds.length ?? 0) > 1);
@@ -47,20 +50,28 @@ export function DashboardPage() {
       <PageHeader title="Dashboard" description="Live quality performance across every complaint and CAPA you are permitted to see." />
 
       <div className="space-y-4 p-3 sm:p-6">
-        {showCompanyFilter ? (
-          <SectionCard className="sm:max-w-sm">
-            <Field label="Company scope">
-              <Select value={company} onChange={(event) => setCompany(event.target.value)}>
-                <option value="">All permitted companies</option>
-                {companies.map((entry) => (
-                  <option key={entry._id} value={entry._id}>
-                    {entry.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </SectionCard>
-        ) : null}
+        <SectionCard className="max-w-3xl">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {showCompanyFilter ? (
+              <Field label="Company scope">
+                <Select value={company} onChange={(event) => setCompany(event.target.value)}>
+                  <option value="">All permitted companies</option>
+                  {companies.map((entry) => (
+                    <option key={entry._id} value={entry._id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            ) : null}
+            <DateRangeFilter
+              startDate={startDate}
+              endDate={endDate}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+            />
+          </div>
+        </SectionCard>
 
         {isLoading ? <Spinner label="Loading dashboard" /> : null}
 

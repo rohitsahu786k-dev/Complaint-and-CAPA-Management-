@@ -268,9 +268,11 @@ export async function listComplaints(query: ComplaintListQuery, user: ApiUser | 
   if (query.owner) filter.owner = new Types.ObjectId(query.owner);
   if (typeof query.isRepeat === "boolean") filter.isRepeat = query.isRepeat;
   if (query.receivedFrom || query.receivedTo) {
+    const receivedTo = query.receivedTo ? new Date(query.receivedTo) : undefined;
+    receivedTo?.setHours(23, 59, 59, 999);
     filter.receivedAt = {
       ...(query.receivedFrom ? { $gte: query.receivedFrom } : {}),
-      ...(query.receivedTo ? { $lte: query.receivedTo } : {})
+      ...(receivedTo ? { $lte: receivedTo } : {})
     };
   }
   if (query.search) {

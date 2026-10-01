@@ -13,6 +13,7 @@ import { CategoryBarChart, TrendChart } from "@/components/charts/Charts";
 import { Button } from "@/components/ui/Button";
 import { KpiCard, SectionCard } from "@/components/ui/Cards";
 import { DataTable, type Column } from "@/components/ui/DataTable";
+import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { Field, Select, Spinner } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
@@ -32,8 +33,10 @@ export function TatDashboardPage() {
   const toast = useToast();
   const permissions = usePermissions();
   const [company, setCompany] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const master = useMasterBootstrap();
-  const { data, isLoading, error } = useTatAnalytics(company || undefined);
+  const { data, isLoading, error } = useTatAnalytics(company || undefined, { startDate, endDate });
 
   const companies = master.data?.companies ?? [];
   const showCompanyFilter =
@@ -144,20 +147,28 @@ export function TatDashboardPage() {
       />
 
       <div className="space-y-6 px-4 sm:px-6">
-        {showCompanyFilter && (
-          <SectionCard className="sm:max-w-sm">
-            <Field label="Company Scope">
-              <Select value={company} onChange={(e) => setCompany(e.target.value)}>
-                <option value="">All Permitted Companies</option>
-                {companies.map((item) => (
-                  <option key={item._id} value={item._id}>
-                    {item.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </SectionCard>
-        )}
+        <SectionCard className="max-w-3xl">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {showCompanyFilter && (
+              <Field label="Company Scope">
+                <Select value={company} onChange={(e) => setCompany(e.target.value)}>
+                  <option value="">All Permitted Companies</option>
+                  {companies.map((item) => (
+                    <option key={item._id} value={item._id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
+            <DateRangeFilter
+              startDate={startDate}
+              endDate={endDate}
+              onStartDateChange={setStartDate}
+              onEndDateChange={setEndDate}
+            />
+          </div>
+        </SectionCard>
 
         {isLoading && <Spinner label="Aggregating TAT SLA statistics..." />}
 

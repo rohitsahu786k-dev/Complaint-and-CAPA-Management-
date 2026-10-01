@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Download, ExternalLink, FilterX, Search } from "lucide-react";
+import { CAPA_STATUSES, CAPA_TYPES } from "@shared/constants/domain";
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/Cards";
 import { DataTable, Pagination, type Column } from "@/components/ui/DataTable";
@@ -25,7 +26,7 @@ export function CapaMasterPage() {
       sort: params.get("sort") ?? "createdAt",
       order: params.get("order") ?? "desc"
     };
-    ["status", "type", "company", "department", "search"].forEach((k) => {
+    ["status", "type", "company", "department", "search", "dueFrom", "dueTo"].forEach((k) => {
       const v = params.get(k);
       if (v) entries[k] = v;
     });
@@ -217,12 +218,11 @@ export function CapaMasterPage() {
                 onChange={(e) => updateFilter("status", e.target.value)}
               >
                 <option value="">All Statuses</option>
-                <option value="Draft">Draft</option>
-                <option value="Assigned">Assigned</option>
-                <option value="In Progress">In Progress</option>
-                <option value="Completed">Completed</option>
-                <option value="Closed">Closed</option>
-                <option value="Rejected">Rejected</option>
+                {CAPA_STATUSES.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
               </Select>
             </Field>
 
@@ -233,9 +233,11 @@ export function CapaMasterPage() {
                 onChange={(e) => updateFilter("type", e.target.value)}
               >
                 <option value="">All Types</option>
-                <option value="Corrective">Corrective</option>
-                <option value="Preventive">Preventive</option>
-                <option value="Containment">Containment</option>
+                {CAPA_TYPES.map((type) => (
+                  <option key={type} value={type}>
+                    {type}
+                  </option>
+                ))}
               </Select>
             </Field>
 
@@ -269,6 +271,24 @@ export function CapaMasterPage() {
                   </option>
                 ))}
               </Select>
+            </Field>
+
+            <Field label="Start Date">
+              <Input
+                className="text-xs"
+                type="date"
+                value={params.get("dueFrom") ?? ""}
+                onChange={(e) => updateFilter("dueFrom", e.target.value)}
+              />
+            </Field>
+
+            <Field label="End Date">
+              <Input
+                className="text-xs"
+                type="date"
+                value={params.get("dueTo") ?? ""}
+                onChange={(e) => updateFilter("dueTo", e.target.value)}
+              />
             </Field>
           </div>
 

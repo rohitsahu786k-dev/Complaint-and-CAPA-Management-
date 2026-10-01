@@ -21,7 +21,6 @@ body,
 
 body {
   margin: 0;
-  overflow-x: hidden;
   background: #f8fafc;
   color: #1e293b;
   font-family: "DM Sans", ui-sans-serif, system-ui, sans-serif;

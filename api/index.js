@@ -3275,9 +3275,11 @@ async function listComplaints(query, user) {
   if (query.owner) filter.owner = new Types4.ObjectId(query.owner);
   if (typeof query.isRepeat === "boolean") filter.isRepeat = query.isRepeat;
   if (query.receivedFrom || query.receivedTo) {
+    const receivedTo = query.receivedTo ? new Date(query.receivedTo) : void 0;
+    receivedTo?.setHours(23, 59, 59, 999);
     filter.receivedAt = {
       ...query.receivedFrom ? { $gte: query.receivedFrom } : {},
-      ...query.receivedTo ? { $lte: query.receivedTo } : {}
+      ...receivedTo ? { $lte: receivedTo } : {}
     };
   }
   if (query.search) {
@@ -3672,6 +3674,18 @@ async function deleteComplaint(complaintId, confirmation, user) {
 
 // server/services/analytics.service.ts
 var COMPLAINT_PROJECTION = "number company type status receivedAt closedAt priority owner responsibleDept customer product category rootCauseCategory d4Occurrence isRepeat repeatOf acknowledgedAt containmentAt rcaAt capaAssignedAt ackDelayReason contDelayReason rcaDelayReason capaDelayReason";
+function endOfDay(date2) {
+  const next = new Date(date2);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+function rangeFilter(range) {
+  if (!range?.startDate && !range?.endDate) return {};
+  return {
+    ...range.startDate ? { $gte: range.startDate } : {},
+    ...range.endDate ? { $lte: endOfDay(range.endDate) } : {}
+  };
+}
 async function resolveScope(user, companyId) {
   const actor = await requireActor(user);
   if (!hasPermission(actor, "view.all") && !hasPermission(actor, "view.company")) {
@@ -3746,10 +3760,14 @@ function stageStates(rows, multipliers, config, now) {
     return { row, plan };
   });
 }
-async function dashboardAnalytics(user, companyId) {
+async function dashboardAnalytics(user, companyId, range) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
-  const [rows, multipliers] = await Promise.all([loadComplaints(scope), priorityMultipliers()]);
+  const dateFilter = rangeFilter(range);
+  const [rows, multipliers] = await Promise.all([
+    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
+    priorityMultipliers()
+  ]);
   const now = /* @__PURE__ */ new Date();
   const states = stageStates(rows, multipliers, config, now);
   const total = rows.length;
@@ -3769,7 +3787,7 @@ async function dashboardAnalytics(user, companyId) {
   );
   const closureDurations = rows.filter((row) => row.closedAt).map((row) => (new Date(row.closedAt).getTime() - new Date(row.receivedAt).getTime()) / 864e5);
   const averageClosureDays = closureDurations.length === 0 ? 0 : Math.round(closureDurations.reduce((sum, days) => sum + days, 0) / closureDurations.length * 10) / 10;
-  const capaRows = await Capa.find(scope.filter).select("status dueDate effectiveness completedAt owner").lean();
+  const capaRows = await Capa.find({ ...scope.filter, ...Object.keys(dateFilter).length ? { createdAt: dateFilter } : {} }).select("status dueDate effectiveness completedAt owner").lean();
   const capaClosed = capaRows.filter((capa) => capa.status === "Closed" || capa.status === "Completed").length;
   const capaOverdue = capaRows.filter(
     (capa) => capa.status !== "Closed" && capa.status !== "Completed" && capa.dueDate && new Date(capa.dueDate) < now
@@ -3840,10 +3858,14 @@ async function dashboardAnalytics(user, companyId) {
     recent
   };
 }
-async function tatAnalytics(user, companyId) {
+async function tatAnalytics(user, companyId, range) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
-  const [rows, multipliers] = await Promise.all([loadComplaints(scope), priorityMultipliers()]);
+  const dateFilter = rangeFilter(range);
+  const [rows, multipliers] = await Promise.all([
+    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
+    priorityMultipliers()
+  ]);
   const now = /* @__PURE__ */ new Date();
   const states = stageStates(rows, multipliers, config, now);
   const stages = WORKFLOW_STAGES.map((stage) => {
@@ -3911,10 +3933,11 @@ async function tatAnalytics(user, companyId) {
   });
   return { stages, trend, pareto, drilldown, config };
 }
-async function capaAnalytics(user, companyId) {
+async function capaAnalytics(user, companyId, range) {
   const scope = await resolveScope(user, companyId);
   const now = /* @__PURE__ */ new Date();
-  const capas = await Capa.find(scope.filter).select("number status dueDate completedAt effectiveness owner type evidenceReview createdAt").populate("owner", "name").lean();
+  const dateFilter = rangeFilter(range);
+  const capas = await Capa.find({ ...scope.filter, ...Object.keys(dateFilter).length ? { createdAt: dateFilter } : {} }).select("number status dueDate completedAt effectiveness owner type evidenceReview createdAt").populate("owner", "name").lean();
   const closed = capas.filter((capa) => capa.status === "Closed" || capa.status === "Completed");
   const overdue = capas.filter((capa) => capa.status !== "Closed" && capa.status !== "Completed" && capa.dueDate && new Date(capa.dueDate) < now);
   const ownerMap = /* @__PURE__ */ new Map();
@@ -4508,7 +4531,11 @@ function asyncHandler(fn) {
 }
 
 // server/routes/analytics.routes.ts
-var scopeQuery = z3.object({ company: objectIdSchema.optional() });
+var scopeQuery = z3.object({
+  company: objectIdSchema.optional(),
+  startDate: z3.coerce.date().optional(),
+  endDate: z3.coerce.date().optional()
+});
 var reportQuery = scopeQuery.extend({ from: z3.coerce.date().optional(), to: z3.coerce.date().optional() });
 var analyticsRouter = Router();
 analyticsRouter.use(requireUser);
@@ -4517,7 +4544,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await dashboardAnalytics(req.user, query.company));
+    return ok(res, await dashboardAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
   })
 );
 analyticsRouter.get(
@@ -4525,7 +4552,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await tatAnalytics(req.user, query.company));
+    return ok(res, await tatAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
   })
 );
 analyticsRouter.get(
@@ -4533,7 +4560,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await capaAnalytics(req.user, query.company));
+    return ok(res, await capaAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
   })
 );
 analyticsRouter.get(
@@ -5285,9 +5312,11 @@ async function listCapas(query, user) {
     filter.status = { $nin: ["Closed", "Completed"] };
   }
   if (query.dueFrom || query.dueTo) {
+    const dueTo = query.dueTo ? new Date(query.dueTo) : void 0;
+    dueTo?.setHours(23, 59, 59, 999);
     filter.dueDate = {
       ...query.dueFrom ? { $gte: query.dueFrom } : {},
-      ...query.dueTo ? { $lte: query.dueTo } : {}
+      ...dueTo ? { $lte: dueTo } : {}
     };
   }
   if (query.search) {

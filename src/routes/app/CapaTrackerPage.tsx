@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { CAPA_STATUSES, CAPA_TYPES } from "@shared/constants/domain";
 import {
   CheckCircle,
   Download,
@@ -30,10 +31,8 @@ import {
   type CapaItem
 } from "@/services/queries";
 
-const STATUSES = ["Draft", "Assigned", "In Progress", "Completed", "Closed", "Rejected"];
-const TYPES = ["Corrective", "Preventive", "Containment"];
 const EVIDENCE_STATUSES = ["Pending", "Accepted", "Rejected"];
-const EFFECTIVENESS_STATUSES = ["Effective", "Not Effective", "Pending"];
+const EFFECTIVENESS_STATUSES = ["Effective", "Not Effective"];
 
 export function CapaTrackerPage() {
   const toast = useToast();
@@ -53,7 +52,7 @@ export function CapaTrackerPage() {
       sort: params.get("sort") ?? "dueDate",
       order: params.get("order") ?? "asc"
     };
-    ["status", "type", "company", "evidenceStatus", "effectiveness", "search"].forEach((k) => {
+    ["status", "type", "company", "evidenceReview", "effectiveness", "search", "dueFrom", "dueTo"].forEach((k) => {
       const v = params.get(k);
       if (v) entries[k] = v;
     });
@@ -333,7 +332,7 @@ export function CapaTrackerPage() {
                 onChange={(e) => updateFilter("status", e.target.value)}
               >
                 <option value="">All Statuses</option>
-                {STATUSES.map((s) => (
+                {CAPA_STATUSES.map((s) => (
                   <option key={s} value={s}>
                     {s}
                   </option>
@@ -348,7 +347,7 @@ export function CapaTrackerPage() {
                 onChange={(e) => updateFilter("type", e.target.value)}
               >
                 <option value="">All Types</option>
-                {TYPES.map((t) => (
+                {CAPA_TYPES.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
@@ -359,8 +358,8 @@ export function CapaTrackerPage() {
             <Field label="Evidence Review">
               <Select
                 className="text-xs"
-                value={params.get("evidenceStatus") ?? ""}
-                onChange={(e) => updateFilter("evidenceStatus", e.target.value)}
+                value={params.get("evidenceReview") ?? ""}
+                onChange={(e) => updateFilter("evidenceReview", e.target.value)}
               >
                 <option value="">All Evidence</option>
                 {EVIDENCE_STATUSES.map((es) => (
@@ -402,6 +401,24 @@ export function CapaTrackerPage() {
                 </Select>
               </Field>
             )}
+
+            <Field label="Start Date">
+              <Input
+                className="text-xs"
+                type="date"
+                value={params.get("dueFrom") ?? ""}
+                onChange={(e) => updateFilter("dueFrom", e.target.value)}
+              />
+            </Field>
+
+            <Field label="End Date">
+              <Input
+                className="text-xs"
+                type="date"
+                value={params.get("dueTo") ?? ""}
+                onChange={(e) => updateFilter("dueTo", e.target.value)}
+              />
+            </Field>
           </div>
 
           <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">

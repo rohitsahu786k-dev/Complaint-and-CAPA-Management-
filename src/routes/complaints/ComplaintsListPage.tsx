@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Download, FilterX, Plus, Search } from "lucide-react";
 import { COMPLAINT_STATUSES, COMPLAINT_TYPES } from "@shared/constants/domain";
@@ -29,6 +29,9 @@ export function ComplaintsListPage() {
   const toast = useToast();
   const permissions = usePermissions();
   const [params, setParams] = useSearchParams();
+  const urlSearch = params.get("search") ?? "";
+  const queryString = params.toString();
+  const [searchDraft, setSearchDraft] = useState(urlSearch);
   const master = useMasterBootstrap();
   const configuration = useConfiguration();
 
@@ -47,6 +50,23 @@ export function ComplaintsListPage() {
   }, [params]);
 
   const { data, isLoading, error } = useComplaints(query);
+
+  useEffect(() => {
+    setSearchDraft(urlSearch);
+  }, [urlSearch]);
+
+  useEffect(() => {
+    const nextValue = searchDraft.trim();
+    if (nextValue === urlSearch) return;
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams(queryString);
+      if (nextValue) next.set("search", nextValue);
+      else next.delete("search");
+      next.set("page", "1");
+      setParams(next, { replace: true });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [queryString, searchDraft, setParams, urlSearch]);
 
   function setParam(key: string, value: string) {
     const next = new URLSearchParams(params);
@@ -172,7 +192,8 @@ export function ComplaintsListPage() {
                 <Input
                   className="pl-9"
                   placeholder="Number, customer, product, PO, description"
-                  defaultValue={params.get("search") ?? ""}
+                  value={searchDraft}
+                  onChange={(event) => setSearchDraft(event.target.value)}
                   onBlur={(event) => setParam("search", event.target.value.trim())}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") setParam("search", (event.target as HTMLInputElement).value.trim());

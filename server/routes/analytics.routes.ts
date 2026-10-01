@@ -11,7 +11,11 @@ import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
 import { httpError, ok } from "../utils/http";
 
-const scopeQuery = z.object({ company: objectIdSchema.optional() });
+const scopeQuery = z.object({
+  company: objectIdSchema.optional(),
+  startDate: z.coerce.date().optional(),
+  endDate: z.coerce.date().optional()
+});
 const reportQuery = scopeQuery.extend({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
 
 export const analyticsRouter = Router();
@@ -23,7 +27,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await dashboardAnalytics(req.user, query.company));
+    return ok(res, await dashboardAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
   })
 );
 
@@ -32,7 +36,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await tatAnalytics(req.user, query.company));
+    return ok(res, await tatAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
   })
 );
 
@@ -41,7 +45,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await capaAnalytics(req.user, query.company));
+    return ok(res, await capaAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
   })
 );
 

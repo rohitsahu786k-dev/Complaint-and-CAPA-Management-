@@ -105,8 +105,13 @@ export type DashboardResponse = {
   recent: { id: string; number: string; type: string; status: string; customer: string; category: string; receivedAt: string; isRepeat: boolean }[];
 };
 
-export function useDashboard(company?: string) {
-  return useApiQuery<DashboardResponse>(["analytics", "dashboard", company ?? "all"], `/api/analytics/dashboard${buildQuery({ company })}`);
+export type DateRangeParams = { startDate?: string; endDate?: string };
+
+export function useDashboard(company?: string, range: DateRangeParams = {}) {
+  return useApiQuery<DashboardResponse>(
+    ["analytics", "dashboard", company ?? "all", range.startDate ?? "", range.endDate ?? ""],
+    `/api/analytics/dashboard${buildQuery({ company, startDate: range.startDate, endDate: range.endDate })}`
+  );
 }
 
 export type TatResponse = {
@@ -127,8 +132,11 @@ export type TatResponse = {
   config: Record<string, number>;
 };
 
-export function useTatAnalytics(company?: string) {
-  return useApiQuery<TatResponse>(["analytics", "tat", company ?? "all"], `/api/analytics/tat${buildQuery({ company })}`);
+export function useTatAnalytics(company?: string, range: DateRangeParams = {}) {
+  return useApiQuery<TatResponse>(
+    ["analytics", "tat", company ?? "all", range.startDate ?? "", range.endDate ?? ""],
+    `/api/analytics/tat${buildQuery({ company, startDate: range.startDate, endDate: range.endDate })}`
+  );
 }
 
 export type CapaAnalyticsResponse = {
@@ -150,8 +158,11 @@ export type CapaAnalyticsResponse = {
   trend: { month: string; assigned: number; closed: number }[];
 };
 
-export function useCapaAnalytics(company?: string) {
-  return useApiQuery<CapaAnalyticsResponse>(["analytics", "capa", company ?? "all"], `/api/analytics/capa${buildQuery({ company })}`);
+export function useCapaAnalytics(company?: string, range: DateRangeParams = {}) {
+  return useApiQuery<CapaAnalyticsResponse>(
+    ["analytics", "capa", company ?? "all", range.startDate ?? "", range.endDate ?? ""],
+    `/api/analytics/capa${buildQuery({ company, startDate: range.startDate, endDate: range.endDate })}`
+  );
 }
 
 export type RepeatResponse = {

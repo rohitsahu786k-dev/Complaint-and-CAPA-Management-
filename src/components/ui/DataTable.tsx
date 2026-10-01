@@ -73,9 +73,9 @@ export function DataTable<T>({
   return (
     <div>
       {/* Desktop and tablet: a real table that scrolls inside its own container. */}
-      <div className="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm md:block">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-sm">
+      <div className="hidden max-w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm md:block">
+        <div className="overflow-x-auto overscroll-x-contain">
+          <table className="w-full min-w-max border-collapse text-sm">
             {caption ? <caption className="sr-only">{caption}</caption> : null}
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50">

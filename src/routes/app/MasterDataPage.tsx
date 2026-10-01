@@ -903,8 +903,8 @@ export function MasterDataPage() {
               grant it, off to revoke it. Hover a permission code for its meaning.
             </div>
 
-            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full border-collapse text-left">
+            <div className="mt-4 max-w-full overflow-x-auto overscroll-x-contain rounded-xl border border-slate-200">
+              <table className="w-full min-w-max border-collapse text-left">
                 <thead>
                   <tr className="bg-slate-50">
                     <th
