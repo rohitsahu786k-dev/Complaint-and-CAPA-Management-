@@ -60,6 +60,9 @@ const NotificationsPage = lazy(() =>
 const EmailAdminPage = lazy(() =>
   import("@/routes/admin/email/EmailAdminPage").then((m) => ({ default: m.EmailAdminPage }))
 );
+const TrainingManualPage = lazy(() =>
+  import("@/routes/app/TrainingManualPage").then((m) => ({ default: m.TrainingManualPage }))
+);
 
 function PageLoader() {
   return (
@@ -199,6 +202,15 @@ export const router = createBrowserRouter([
               </Suspense>
             )
           },
+          {
+            path: "training-manual",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <TrainingManualPage />
+              </Suspense>
+            )
+          },
+          { path: "sop", element: <Navigate to="/training-manual" replace /> },
           { path: "settings", element: <Navigate to="/master-data" replace /> },
           {
             path: "notifications",

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ComponentType } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
+  BookOpen,
   ClipboardList,
   Database,
   FileBarChart,
@@ -82,7 +83,8 @@ const NAV: NavGroup[] = [
       },
       { to: "/system-restore", label: "System Restore", icon: RotateCcw, visible: (permissions) => permissions.isMasterAdmin },
       { to: "/master-data", label: "Master Data", icon: Settings, visible: (permissions) => permissions.isMasterAdmin },
-      { to: "/email-admin", label: "Email Automation", icon: Mail, visible: (permissions) => permissions.isMasterAdmin }
+      { to: "/email-admin", label: "Email Automation", icon: Mail, visible: (permissions) => permissions.isMasterAdmin },
+      { to: "/training-manual", label: "Training & SOP", icon: BookOpen, visible: () => true }
     ]
   }
 ];

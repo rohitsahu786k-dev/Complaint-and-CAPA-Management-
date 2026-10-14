@@ -66,6 +66,7 @@ The ONEPWS Complaint & CAPA Management Portal replaces disparate manual spreadsh
 │   ├── EMAIL_VARIABLE_REFERENCE.md
 │   ├── FEATURE_PARITY.md
 │   ├── LEGACY_FEATURE_INVENTORY.md
+│   ├── PORTAL_TRAINING_MANUAL_AND_SOP.md # Comprehensive SOP & User Training Manual with screenshots
 │   └── RBAC_MATRIX.md
 ├── server/                # Express backend application
 │   ├── config/            # Environment parsing (Zod), DB connection cache
