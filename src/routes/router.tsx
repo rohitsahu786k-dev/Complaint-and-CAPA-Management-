@@ -63,6 +63,9 @@ const EmailAdminPage = lazy(() =>
 const TrainingManualPage = lazy(() =>
   import("@/routes/app/TrainingManualPage").then((m) => ({ default: m.TrainingManualPage }))
 );
+const OcpManualPage = lazy(() =>
+  import("@/routes/app/OcpManualPage").then((m) => ({ default: m.OcpManualPage }))
+);
 
 function PageLoader() {
   return (
@@ -203,6 +206,16 @@ export const router = createBrowserRouter([
             )
           },
           {
+            path: "ocp-manual",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <OcpManualPage />
+              </Suspense>
+            )
+          },
+          { path: "sop-manual", element: <Navigate to="/ocp-manual" replace /> },
+          { path: "sop", element: <Navigate to="/ocp-manual" replace /> },
+          {
             path: "training-manual",
             element: (
               <Suspense fallback={<PageLoader />}>
@@ -210,7 +223,6 @@ export const router = createBrowserRouter([
               </Suspense>
             )
           },
-          { path: "sop", element: <Navigate to="/training-manual" replace /> },
           { path: "settings", element: <Navigate to="/master-data" replace /> },
           {
             path: "notifications",

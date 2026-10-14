@@ -35,6 +35,7 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
   visible: (permissions: Permissions) => boolean;
   end?: boolean;
+  highlight?: boolean;
 };
 
 type NavGroup = { heading: string; items: NavItem[] };
@@ -84,7 +85,19 @@ const NAV: NavGroup[] = [
       { to: "/system-restore", label: "System Restore", icon: RotateCcw, visible: (permissions) => permissions.isMasterAdmin },
       { to: "/master-data", label: "Master Data", icon: Settings, visible: (permissions) => permissions.isMasterAdmin },
       { to: "/email-admin", label: "Email Automation", icon: Mail, visible: (permissions) => permissions.isMasterAdmin },
-      { to: "/training-manual", label: "Training & SOP", icon: BookOpen, visible: () => true }
+      { to: "/training-manual", label: "Training Guide", icon: ShieldCheck, visible: () => true }
+    ]
+  },
+  {
+    heading: "Help",
+    items: [
+      {
+        to: "/ocp-manual",
+        label: "OCP Manual",
+        icon: BookOpen,
+        visible: () => true,
+        highlight: true
+      }
     ]
   }
 ];
@@ -165,17 +178,27 @@ export function AppShell() {
                       title={collapsed ? item.label : undefined}
                       className={({ isActive }) =>
                         cn(
-                          "flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10 hover:text-white",
+                          "flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold transition",
                           collapsed && "justify-center px-0",
-                          isActive && "bg-brand-red text-white hover:bg-brand-red"
+                          item.highlight
+                            ? isActive
+                              ? "border border-brand-red bg-brand-red text-white shadow-sm"
+                              : "border border-red-400/80 bg-red-500/10 text-red-300 hover:border-brand-red hover:bg-red-500/20 hover:text-white"
+                            : isActive
+                              ? "bg-brand-red text-white hover:bg-brand-red"
+                              : "text-slate-200 hover:bg-white/10 hover:text-white"
                         )
                       }
                     >
-                      <item.icon className="h-4 w-4 shrink-0" />
-                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
-                      {!collapsed && item.to === "/notifications" && unread > 0 ? (
-                        <span className="ml-auto rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-brand-red">{unread}</span>
-                      ) : null}
+                      {({ isActive }) => (
+                        <>
+                          <item.icon className={cn("h-4 w-4 shrink-0", item.highlight && !isActive && "text-red-400")} />
+                          {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                          {!collapsed && item.to === "/notifications" && unread > 0 ? (
+                            <span className="ml-auto rounded-full bg-white px-1.5 py-0.5 text-[10px] font-bold text-brand-red">{unread}</span>
+                          ) : null}
+                        </>
+                      )}
                     </NavLink>
                   )}
                 </li>

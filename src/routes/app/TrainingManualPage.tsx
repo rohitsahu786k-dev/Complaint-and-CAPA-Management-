@@ -540,7 +540,7 @@ export function TrainingManualPage() {
           <SectionCard
             title={current.title}
             description={current.summary}
-            action={
+            actions={
               <div className="flex items-center gap-1.5">
                 {current.standards.map((std, idx) => (
                   <span
