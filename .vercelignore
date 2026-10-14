@@ -8,8 +8,9 @@ coverage
 *.tsbuildinfo
 .vercel
 
-# Docs and phase reports: never imported by the app.
-docs
+# Internal docs and phase reports: never imported by the app.
+# Anchor this rule so public/docs (the OCP manual) is included in deployments.
+/docs
 *.md
 
 # CI config and local tooling caches.
