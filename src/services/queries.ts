@@ -69,6 +69,10 @@ export type MasterBootstrap = {
     designation?: string;
     email?: string;
     department?: string;
+    managerName?: string;
+    managerEmail?: string;
+    hodName?: string;
+    hodEmail?: string;
     active: boolean;
   }[];
 };

@@ -45,7 +45,7 @@ masterAdminRouter.get(
     if (typeof query.active === "boolean") filter.active = query.active;
     if (query.search) {
       const regex = new RegExp(escapeRegex(query.search), "i");
-      filter.$or = [{ name: regex }, { employeeCode: regex }, { email: regex }, { designation: regex }];
+      filter.$or = [{ name: regex }, { employeeCode: regex }, { email: regex }, { designation: regex }, { managerEmail: regex }, { hodEmail: regex }];
     }
     const [rows, total] = await Promise.all([
       Employee.find(filter)

@@ -709,7 +709,7 @@ export function MasterDataPage() {
         {activeTab === "employees" && (
           <SectionCard title="Employee Directory" description="Source directory for 8D teams, ownership, sign-off snapshots, Manager and HOD routing." actions={<Button type="button" onClick={() => setEmployeeModal(true)}><Plus className="h-4 w-4" />Add Employee</Button>}>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[900px] text-left text-xs">
+              <table className="w-full min-w-[1200px] text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
                     <th className="p-3">Employee</th>
@@ -717,6 +717,8 @@ export function MasterDataPage() {
                     <th>Designation</th>
                     <th>Email</th>
                     <th>Department</th>
+                    <th>Manager Email</th>
+                    <th>HOD Email</th>
                     <th>Status</th>
                     <th className="text-right">Actions</th>
                   </tr>
@@ -729,6 +731,8 @@ export function MasterDataPage() {
                       <td>{employee.designation || "—"}</td>
                       <td>{employee.email || "—"}</td>
                       <td>{departments.find((d) => d._id === employee.department)?.name || "—"}</td>
+                      <td className="max-w-[220px] break-words">{employee.managerEmail ? employee.managerEmail.split(/[,;]\s*/).map((mail) => <div key={mail}>{mail}</div>) : "—"}</td>
+                      <td className="max-w-[220px] break-words">{employee.hodEmail ? employee.hodEmail.split(/[,;]\s*/).map((mail) => <div key={mail}>{mail}</div>) : "—"}</td>
                       <td>
                         <StatusBadge tone={employee.active ? "green" : "neutral"}>{employee.active ? "Active" : "Inactive"}</StatusBadge>
                       </td>
@@ -747,7 +751,11 @@ export function MasterDataPage() {
                                 employeeCode: employee.employeeCode,
                                 email: employee.email ?? "",
                                 designation: employee.designation ?? "",
-                                department: employee.department ?? ""
+                                department: employee.department ?? "",
+                                managerName: employee.managerName ?? "",
+                                managerEmail: employee.managerEmail ?? "",
+                                hodName: employee.hodName ?? "",
+                                hodEmail: employee.hodEmail ?? ""
                               },
                               fields: [
                                 { key: "name", label: "Full Name", required: true },
@@ -760,7 +768,11 @@ export function MasterDataPage() {
                                   type: "select",
                                   required: true,
                                   options: departments.filter((d) => d.active).map((d) => ({ value: d._id, label: d.name }))
-                                }
+                                },
+                                { key: "managerName", label: "Manager Name" },
+                                { key: "managerEmail", label: "Manager Email", placeholder: "a@onepws.com, b@onepws.com" },
+                                { key: "hodName", label: "HOD Name" },
+                                { key: "hodEmail", label: "HOD Email", placeholder: "a@onepws.com; b@onepws.com" }
                               ]
                             })
                           }
@@ -1217,7 +1229,7 @@ export function MasterDataPage() {
 
       <Modal open={departmentModal} onOpenChange={setDepartmentModal} title="Add Department"><div className="space-y-4"><Field label="Department Name" required><Input value={departmentForm.name} onChange={(e) => setDepartmentForm({ ...departmentForm, name: e.target.value })}/></Field><Field label="Department Code"><Input value={departmentForm.code} onChange={(e) => setDepartmentForm({ ...departmentForm, code: e.target.value.toUpperCase() })}/></Field><Field label="Company"><Select value={departmentForm.company} onChange={(e) => setDepartmentForm({ ...departmentForm, company: e.target.value })}><option value="">Shared / All</option>{companies.filter((c) => c.active).map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</Select></Field><div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setDepartmentModal(false)}>Cancel</Button><Button type="button" onClick={handleDepartmentSubmit} disabled={saving}>Create Department</Button></div></div></Modal>
 
-      <Modal open={employeeModal} onOpenChange={setEmployeeModal} title="Add Employee"><div className="grid gap-4 sm:grid-cols-2"><Field label="Employee Code" required><Input value={employeeForm.employeeCode} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeCode: e.target.value })}/></Field><Field label="Full Name" required><Input value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })}/></Field><Field label="Email"><Input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })}/></Field><Field label="Designation"><Input value={employeeForm.designation} onChange={(e) => setEmployeeForm({ ...employeeForm, designation: e.target.value })}/></Field><Field label="Company" required><Select value={employeeForm.company} onChange={(e) => setEmployeeForm({ ...employeeForm, company: e.target.value })}><option value="">Select company</option>{companies.filter((c) => c.active).map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</Select></Field><Field label="Department" required><Select value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}><option value="">Select department</option>{departments.filter((d) => d.active).map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}</Select></Field><Field label="Manager Name"><Input value={employeeForm.managerName} onChange={(e) => setEmployeeForm({ ...employeeForm, managerName: e.target.value })}/></Field><Field label="Manager Email"><Input type="email" value={employeeForm.managerEmail} onChange={(e) => setEmployeeForm({ ...employeeForm, managerEmail: e.target.value })}/></Field><Field label="HOD Name"><Input value={employeeForm.hodName} onChange={(e) => setEmployeeForm({ ...employeeForm, hodName: e.target.value })}/></Field><Field label="HOD Email"><Input type="email" value={employeeForm.hodEmail} onChange={(e) => setEmployeeForm({ ...employeeForm, hodEmail: e.target.value })}/></Field></div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setEmployeeModal(false)}>Cancel</Button><Button type="button" onClick={handleEmployeeSubmit} disabled={saving}>Create Employee</Button></div></Modal>
+      <Modal open={employeeModal} onOpenChange={setEmployeeModal} title="Add Employee"><div className="grid gap-4 sm:grid-cols-2"><Field label="Employee Code" required><Input value={employeeForm.employeeCode} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeCode: e.target.value })}/></Field><Field label="Full Name" required><Input value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })}/></Field><Field label="Email"><Input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })}/></Field><Field label="Designation"><Input value={employeeForm.designation} onChange={(e) => setEmployeeForm({ ...employeeForm, designation: e.target.value })}/></Field><Field label="Company" required><Select value={employeeForm.company} onChange={(e) => setEmployeeForm({ ...employeeForm, company: e.target.value })}><option value="">Select company</option>{companies.filter((c) => c.active).map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</Select></Field><Field label="Department" required><Select value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}><option value="">Select department</option>{departments.filter((d) => d.active).map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}</Select></Field><Field label="Manager Name"><Input value={employeeForm.managerName} onChange={(e) => setEmployeeForm({ ...employeeForm, managerName: e.target.value })}/></Field><Field label="Manager Email"><Input placeholder="a@onepws.com, b@onepws.com" value={employeeForm.managerEmail} onChange={(e) => setEmployeeForm({ ...employeeForm, managerEmail: e.target.value })}/></Field><Field label="HOD Name"><Input value={employeeForm.hodName} onChange={(e) => setEmployeeForm({ ...employeeForm, hodName: e.target.value })}/></Field><Field label="HOD Email"><Input placeholder="a@onepws.com; b@onepws.com" value={employeeForm.hodEmail} onChange={(e) => setEmployeeForm({ ...employeeForm, hodEmail: e.target.value })}/></Field></div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setEmployeeModal(false)}>Cancel</Button><Button type="button" onClick={handleEmployeeSubmit} disabled={saving}>Create Employee</Button></div></Modal>
 
       <Modal open={userModal} onOpenChange={setUserModal} title="Create System User"><div className="space-y-4"><Field label="Full Name" required><Input value={userForm.name} onChange={(e) => setUserForm({ ...userForm, name: e.target.value })}/></Field><Field label="Email"><Input type="email" value={userForm.email} onChange={(e) => setUserForm({ ...userForm, email: e.target.value })}/></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Username" required><Input value={userForm.username} onChange={(e) => setUserForm({ ...userForm, username: e.target.value.toLowerCase() })}/></Field><Field label="Temporary Password" required><PasswordInput autoComplete="new-password" value={userForm.password} onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}/></Field></div><p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">The temporary password is never retrievable after account creation. The user will be forced to change it before accessing the portal.</p><Field label="Role" required><Select value={userForm.role} onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}><option value="">Select role</option>{roles.filter((r) => r.active).map((r) => <option key={r._id} value={r._id}>{r.name}</option>)}</Select></Field><Field label="Department Name"><Select value={userForm.department} onChange={(e) => setUserForm({ ...userForm, department: e.target.value })}><option value="">No department</option>{departments.filter((d) => d.active).map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}</Select></Field><Field label="Company Access"><div className="grid gap-2 sm:grid-cols-2">{companies.filter((c) => c.active).map((c) => <label key={c._id} className="flex items-center gap-2 rounded-lg border border-slate-200 p-2 text-xs"><input type="checkbox" checked={userForm.companyIds.includes(c._id)} onChange={(e) => setUserForm((current) => ({ ...current, companyIds: e.target.checked ? [...current.companyIds, c._id] : current.companyIds.filter((id) => id !== c._id) }))}/>{c.name}</label>)}</div></Field><div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setUserModal(false)}>Cancel</Button><Button type="button" onClick={handleUserSubmit} disabled={saving}>Create User</Button></div></div></Modal>
     </main>

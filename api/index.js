@@ -286,9 +286,10 @@ async function createPasswordResetToken(emailOrUsername) {
     $or: [{ email: lookup }, { username: lookup }]
   }).select("+passwordResetTokenHash +passwordResetExpires");
   if (!user) {
+    const inList = new RegExp(`(^|[,;\\s])${lookup.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[,;\\s])`);
     const employee = lookup.includes("@") ? await Employee.findOne({
       active: { $ne: false },
-      $or: [{ email: lookup }, { managerEmail: lookup }, { hodEmail: lookup }]
+      $or: [{ email: lookup }, { managerEmail: inList }, { hodEmail: inList }]
     }).select("linkedUser").lean() : null;
     if (employee?.linkedUser) {
       const linkedUser = await User.findOne({ _id: employee.linkedUser, active: true }).select(
@@ -394,7 +395,7 @@ function errorHandler(error, _req, res, _next) {
 
 // server/routes/analytics.routes.ts
 import { Router } from "express";
-import { z as z3 } from "zod";
+import { z as z5 } from "zod";
 
 // shared/schemas/common.ts
 import { z as z2 } from "zod";
@@ -1887,8 +1888,286 @@ function getSmtpStatus() {
   };
 }
 
-// server/services/email-template.service.ts
+// server/services/email-recipient.service.ts
 import { Types } from "mongoose";
+
+// shared/schemas/master-data.ts
+import { z as z4 } from "zod";
+
+// shared/constants/permissions.ts
+var PERMISSIONS = [
+  "view.all",
+  "view.company",
+  "dash.all",
+  "report.all",
+  "export.all",
+  "complaint.create",
+  "complaint.edit",
+  "complaint.edit.own",
+  "complaint.edit.dept",
+  "complaint.assign",
+  "complaint.close",
+  "complaint.delete",
+  "capa.edit.own",
+  "capa.approve.dept",
+  "capa.verify",
+  "capa.evidence.review",
+  "8d.approve",
+  "audit.view"
+];
+var ROLE_NAMES = [
+  "Master Admin",
+  "Management",
+  "Complaint Coordinator",
+  "Complaint Owner",
+  "Department Head",
+  "CAPA Owner",
+  "Quality Head",
+  "Sales / Customer Service",
+  "Auditor",
+  "Viewer"
+];
+var DEFAULT_ROLE_PERMISSIONS = {
+  "Master Admin": ["*"],
+  Management: ["view.all", "dash.all", "report.all", "export.all"],
+  "Complaint Coordinator": ["complaint.create", "complaint.edit", "complaint.assign", "view.company"],
+  "Complaint Owner": ["complaint.edit.own", "view.company"],
+  "Department Head": ["complaint.edit.dept", "capa.approve.dept", "view.company"],
+  "CAPA Owner": ["capa.edit.own", "view.company"],
+  "Quality Head": ["complaint.close", "capa.verify", "capa.evidence.review", "view.company", "8d.approve"],
+  "Sales / Customer Service": ["complaint.create", "view.company"],
+  Auditor: ["view.all", "audit.view", "report.all"],
+  Viewer: ["view.company"]
+};
+
+// shared/schemas/auth.ts
+import { z as z3 } from "zod";
+var usernameSchema = z3.string().trim().min(3).max(80).toLowerCase();
+var passwordSchema = z3.string().min(8, "Password must be at least 8 characters").max(200).regex(/[A-Za-z]/, "Password must include a letter").regex(/[0-9]/, "Password must include a number");
+var loginSchema = z3.object({
+  username: usernameSchema,
+  password: z3.string().min(1).max(200)
+});
+var forgotPasswordSchema = z3.object({
+  emailOrUsername: z3.string().trim().min(3).max(160)
+});
+var resetPasswordSchema = z3.object({
+  token: z3.string().min(32).max(256),
+  newPassword: passwordSchema
+});
+var changePasswordSchema = z3.object({
+  currentPassword: z3.string().min(1).max(200),
+  newPassword: passwordSchema
+});
+
+// shared/schemas/master-data.ts
+var objectId = z4.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
+var optionalObjectId = objectId.optional();
+var EMAIL_PATTERN = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+function parseEmailList(value) {
+  if (typeof value !== "string") return [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const part of value.split(/[,;\n]+/)) {
+    const email = part.trim().toLowerCase();
+    if (email) seen.add(email);
+  }
+  return Array.from(seen);
+}
+var emailListSchema = z4.string().optional().default("").superRefine((value, ctx) => {
+  const invalid = parseEmailList(value).filter((email) => !EMAIL_PATTERN.test(email));
+  if (invalid.length > 0) {
+    ctx.addIssue({ code: z4.ZodIssueCode.custom, message: `Invalid email address: ${invalid.join(", ")}` });
+  }
+}).transform((value) => parseEmailList(value).join(", "));
+var permissionKeySchema = z4.union([z4.enum(PERMISSIONS), z4.literal("*")]);
+var roleCreateSchema = z4.object({
+  name: z4.enum(ROLE_NAMES),
+  permissions: z4.array(permissionKeySchema).min(1),
+  active: z4.boolean().default(true)
+});
+var companyCreateSchema = z4.object({
+  name: z4.string().trim().min(2).max(160),
+  code: z4.string().trim().min(2).max(24).toUpperCase(),
+  logo: z4.object({
+    secureUrl: z4.string().url(),
+    publicId: z4.string().min(1)
+  }).optional(),
+  documentNumber: z4.string().trim().max(80).optional().default(""),
+  revision: z4.string().trim().max(24).optional().default(""),
+  effectiveDate: z4.coerce.date().optional(),
+  complaintNumberingPrefix: z4.string().trim().min(2).max(40),
+  active: z4.boolean().default(true)
+});
+var departmentCreateSchema = z4.object({
+  name: z4.string().trim().min(2).max(120),
+  code: z4.string().trim().max(24).optional().default(""),
+  company: optionalObjectId,
+  active: z4.boolean().default(true)
+});
+var employeeCreateSchema = z4.object({
+  employeeCode: z4.string().trim().min(1).max(40),
+  name: z4.string().trim().min(2).max(160),
+  email: z4.string().trim().email().optional().or(z4.literal("")),
+  designation: z4.string().trim().max(120).optional().default(""),
+  department: objectId,
+  company: objectId,
+  managerName: z4.string().trim().max(160).optional().default(""),
+  managerEmail: emailListSchema,
+  hodName: z4.string().trim().max(160).optional().default(""),
+  hodEmail: emailListSchema,
+  linkedUser: optionalObjectId,
+  active: z4.boolean().default(true)
+});
+var userCreateSchema = z4.object({
+  name: z4.string().trim().min(2).max(160),
+  username: z4.string().trim().min(3).max(80).toLowerCase(),
+  email: z4.string().trim().email().optional().or(z4.literal("")),
+  password: passwordSchema,
+  role: objectId,
+  companyIds: z4.array(objectId).default([]),
+  department: optionalObjectId,
+  employee: optionalObjectId,
+  active: z4.boolean().default(true),
+  forcePasswordChange: z4.boolean().default(true)
+});
+var userUpdateSchema = userCreateSchema.partial().omit({ password: true }).strict();
+
+// server/services/email-recipient.service.ts
+var EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function normalizeEmail(email) {
+  if (typeof email !== "string") return null;
+  const trimmed = email.trim().toLowerCase();
+  return EMAIL_REGEX.test(trimmed) ? trimmed : null;
+}
+function normalizeEmailList(value) {
+  return parseEmailList(value).filter((email) => EMAIL_REGEX.test(email));
+}
+async function resolveDepartmentCc(ref) {
+  if (!ref.complaintId && !ref.capaId) return [];
+  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head"] });
+}
+async function resolveRecipients(options) {
+  await connectDB();
+  const recipientSet = /* @__PURE__ */ new Set();
+  if (options.explicitEmails) {
+    for (const raw of options.explicitEmails) {
+      const email = normalizeEmail(raw);
+      if (email) recipientSet.add(email);
+    }
+  }
+  let complaintDoc = null;
+  if (options.complaintId && Types.ObjectId.isValid(options.complaintId)) {
+    complaintDoc = await Complaint.findById(options.complaintId).lean();
+  }
+  let capaDoc = null;
+  if (options.capaId && Types.ObjectId.isValid(options.capaId)) {
+    capaDoc = await Capa.findById(options.capaId).lean();
+  }
+  const effectiveCompanyId = options.companyId || complaintDoc?.company || capaDoc?.company;
+  const effectiveDepartmentId = options.departmentId || complaintDoc?.responsibleDept || capaDoc?.department;
+  const effectiveOwnerId = options.ownerId || complaintDoc?.owner || capaDoc?.owner;
+  const effectiveCoordinatorId = options.coordinatorId || complaintDoc?.coordinator;
+  const roles = options.targetRoles || [];
+  if (roles.includes("Complaint Owner") && effectiveOwnerId) {
+    const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
+    const email = normalizeEmail(ownerUser?.email);
+    if (email) recipientSet.add(email);
+  }
+  if (roles.includes("Coordinator") && effectiveCoordinatorId) {
+    const coordUser = await User.findOne({ _id: effectiveCoordinatorId, active: true }).lean();
+    const email = normalizeEmail(coordUser?.email);
+    if (email) recipientSet.add(email);
+  }
+  if (roles.includes("CAPA Owner") && capaDoc?.owner) {
+    const capaOwner = await User.findOne({ _id: capaDoc.owner, active: true }).lean();
+    const email = normalizeEmail(capaOwner?.email);
+    if (email) recipientSet.add(email);
+  }
+  if ((roles.includes("Department Head") || roles.includes("Manager")) && effectiveDepartmentId) {
+    const query = {
+      department: effectiveDepartmentId,
+      active: true
+    };
+    if (effectiveCompanyId) {
+      query.company = effectiveCompanyId;
+    }
+    const employees = await Employee.find(query).lean();
+    for (const emp of employees) {
+      if (roles.includes("Department Head")) {
+        for (const hod of normalizeEmailList(emp.hodEmail)) recipientSet.add(hod);
+      }
+      if (roles.includes("Manager") || roles.includes("Department Head")) {
+        for (const mgr of normalizeEmailList(emp.managerEmail)) recipientSet.add(mgr);
+      }
+    }
+  }
+  if (roles.includes("Quality Head")) {
+    const qualityRoles = await Role.find({
+      $or: [
+        { name: /quality/i },
+        { permissions: "complaint.approve" },
+        { permissions: "capa.review_evidence" }
+      ],
+      active: true
+    }).select("_id").lean();
+    const roleIds = qualityRoles.map((r) => r._id);
+    if (roleIds.length > 0) {
+      const userQuery = {
+        role: { $in: roleIds },
+        active: true
+      };
+      if (effectiveCompanyId) {
+        userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
+      }
+      const qualityUsers = await User.find(userQuery).select("email").lean();
+      for (const u of qualityUsers) {
+        const email = normalizeEmail(u.email);
+        if (email) recipientSet.add(email);
+      }
+    }
+  }
+  if (roles.includes("Management")) {
+    const mgmtRoles = await Role.find({
+      name: { $in: ["Management", "Director", "Managing Director", "Plant Head"] },
+      active: true
+    }).select("_id").lean();
+    const roleIds = mgmtRoles.map((r) => r._id);
+    if (roleIds.length > 0) {
+      const userQuery = {
+        role: { $in: roleIds },
+        active: true
+      };
+      if (effectiveCompanyId) {
+        userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
+      }
+      const mgmtUsers = await User.find(userQuery).select("email").lean();
+      for (const u of mgmtUsers) {
+        const email = normalizeEmail(u.email);
+        if (email) recipientSet.add(email);
+      }
+    }
+  }
+  if (roles.includes("Master Admin")) {
+    const adminRole = await Role.findOne({ name: "Master Admin" }).select("_id").lean();
+    if (adminRole) {
+      const admins = await User.find({ role: adminRole._id, active: true }).select("email").lean();
+      for (const admin of admins) {
+        const email = normalizeEmail(admin.email);
+        if (email) recipientSet.add(email);
+      }
+    }
+  }
+  if (options.excludeEmails) {
+    for (const raw of options.excludeEmails) {
+      const email = normalizeEmail(raw);
+      if (email) recipientSet.delete(email);
+    }
+  }
+  return Array.from(recipientSet);
+}
+
+// server/services/email-template.service.ts
+import { Types as Types2 } from "mongoose";
 
 // server/models/EmailTemplate.ts
 import mongoose12, { Schema as Schema11 } from "mongoose";
@@ -2409,7 +2688,7 @@ async function listEmailTemplates(filter) {
   return EmailTemplate.find(query).sort({ triggerEvent: 1, templateName: 1 }).populate("updatedBy", "name username").lean();
 }
 async function getEmailTemplateById(id2) {
-  if (!Types.ObjectId.isValid(id2)) throw httpError(400, "Invalid template ID");
+  if (!Types2.ObjectId.isValid(id2)) throw httpError(400, "Invalid template ID");
   await connectDB();
   const template = await EmailTemplate.findById(id2).populate("updatedBy", "name username").lean();
   if (!template) throw httpError(404, "Email template not found");
@@ -2439,7 +2718,7 @@ async function createEmailTemplate(input, userId) {
   });
 }
 async function updateEmailTemplate(id2, input, userId) {
-  if (!Types.ObjectId.isValid(id2)) throw httpError(400, "Invalid template ID");
+  if (!Types2.ObjectId.isValid(id2)) throw httpError(400, "Invalid template ID");
   await connectDB();
   const existing = await EmailTemplate.findById(id2);
   if (!existing) throw httpError(404, "Email template not found");
@@ -2453,7 +2732,7 @@ async function updateEmailTemplate(id2, input, userId) {
   if (input.ccRules !== void 0) existing.ccRules = input.ccRules;
   if (input.bccRules !== void 0) existing.bccRules = input.bccRules;
   existing.supportedVariables = variablesInTemplate(existing.subject, existing.htmlBody, existing.textBody);
-  if (userId) existing.updatedBy = new Types.ObjectId(userId);
+  if (userId) existing.updatedBy = new Types2.ObjectId(userId);
   await existing.save();
   return existing.toObject();
 }
@@ -2464,7 +2743,7 @@ async function previewEmailTemplate(templateIdOrTrigger, overrides) {
   let subject = overrides?.subject;
   let triggerEvent = "COMPLAINT_CREATED";
   if (!html || !subject) {
-    if (Types.ObjectId.isValid(templateIdOrTrigger)) {
+    if (Types2.ObjectId.isValid(templateIdOrTrigger)) {
       const doc = await EmailTemplate.findById(templateIdOrTrigger).lean();
       if (doc) {
         html = html || doc.htmlBody;
@@ -2513,7 +2792,7 @@ async function previewEmailTemplate(templateIdOrTrigger, overrides) {
 }
 
 // server/services/email-log.service.ts
-import { Types as Types2 } from "mongoose";
+import { Types as Types3 } from "mongoose";
 
 // server/models/EmailLog.ts
 import mongoose13, { Schema as Schema12 } from "mongoose";
@@ -2637,7 +2916,7 @@ async function queryEmailLogs(query) {
   };
 }
 async function getEmailLogById(id2) {
-  if (!Types2.ObjectId.isValid(id2)) throw httpError(400, "Invalid log ID");
+  if (!Types3.ObjectId.isValid(id2)) throw httpError(400, "Invalid log ID");
   await connectDB();
   const log = await EmailLog.findById(id2).populate("relatedComplaintId", "complaintNumber title status priority").populate("relatedCapaId", "capaNumber title status").lean();
   if (!log) throw httpError(404, "Email log record not found");
@@ -2722,6 +3001,14 @@ async function sendTemplatedEmail(input) {
     });
     return { status: "skipped", logId: String(skippedLog._id), message: "No recipients" };
   }
+  const departmentCc = await resolveDepartmentCc({
+    complaintId: input.relatedComplaintId,
+    capaId: input.relatedCapaId
+  }).catch(() => []);
+  const ccList = Array.from(
+    new Set([...input.cc ?? [], ...departmentCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
+  ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
+  input = { ...input, cc: ccList };
   const appUrl = getAppUrl();
   const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   const normalizedInputData = normalizePortalLinks(input.data, appUrl);
@@ -2855,132 +3142,6 @@ Portal: ${appUrl}` });
     await writeEmailLog({ triggerEvent: "TEST_SMTP", recipients: [input.to], subject, status: "failed", errorMessage: msg, sentBySystem: false });
     throw httpError(500, `SMTP Test failed: ${msg}`);
   }
-}
-
-// server/services/email-recipient.service.ts
-import { Types as Types3 } from "mongoose";
-var EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-function normalizeEmail(email) {
-  if (typeof email !== "string") return null;
-  const trimmed = email.trim().toLowerCase();
-  return EMAIL_REGEX.test(trimmed) ? trimmed : null;
-}
-async function resolveRecipients(options) {
-  await connectDB();
-  const recipientSet = /* @__PURE__ */ new Set();
-  if (options.explicitEmails) {
-    for (const raw of options.explicitEmails) {
-      const email = normalizeEmail(raw);
-      if (email) recipientSet.add(email);
-    }
-  }
-  let complaintDoc = null;
-  if (options.complaintId && Types3.ObjectId.isValid(options.complaintId)) {
-    complaintDoc = await Complaint.findById(options.complaintId).lean();
-  }
-  let capaDoc = null;
-  if (options.capaId && Types3.ObjectId.isValid(options.capaId)) {
-    capaDoc = await Capa.findById(options.capaId).lean();
-  }
-  const effectiveCompanyId = options.companyId || complaintDoc?.company || capaDoc?.company;
-  const effectiveDepartmentId = options.departmentId || complaintDoc?.responsibleDept || capaDoc?.department;
-  const effectiveOwnerId = options.ownerId || complaintDoc?.owner || capaDoc?.owner;
-  const effectiveCoordinatorId = options.coordinatorId || complaintDoc?.coordinator;
-  const roles = options.targetRoles || [];
-  if (roles.includes("Complaint Owner") && effectiveOwnerId) {
-    const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
-    const email = normalizeEmail(ownerUser?.email);
-    if (email) recipientSet.add(email);
-  }
-  if (roles.includes("Coordinator") && effectiveCoordinatorId) {
-    const coordUser = await User.findOne({ _id: effectiveCoordinatorId, active: true }).lean();
-    const email = normalizeEmail(coordUser?.email);
-    if (email) recipientSet.add(email);
-  }
-  if (roles.includes("CAPA Owner") && capaDoc?.owner) {
-    const capaOwner = await User.findOne({ _id: capaDoc.owner, active: true }).lean();
-    const email = normalizeEmail(capaOwner?.email);
-    if (email) recipientSet.add(email);
-  }
-  if ((roles.includes("Department Head") || roles.includes("Manager")) && effectiveDepartmentId) {
-    const query = {
-      department: effectiveDepartmentId,
-      active: true
-    };
-    if (effectiveCompanyId) {
-      query.company = effectiveCompanyId;
-    }
-    const employees = await Employee.find(query).lean();
-    for (const emp of employees) {
-      const hod = normalizeEmail(emp.hodEmail);
-      if (hod && roles.includes("Department Head")) recipientSet.add(hod);
-      const mgr = normalizeEmail(emp.managerEmail);
-      if (mgr && (roles.includes("Manager") || roles.includes("Department Head"))) recipientSet.add(mgr);
-    }
-  }
-  if (roles.includes("Quality Head")) {
-    const qualityRoles = await Role.find({
-      $or: [
-        { name: /quality/i },
-        { permissions: "complaint.approve" },
-        { permissions: "capa.review_evidence" }
-      ],
-      active: true
-    }).select("_id").lean();
-    const roleIds = qualityRoles.map((r) => r._id);
-    if (roleIds.length > 0) {
-      const userQuery = {
-        role: { $in: roleIds },
-        active: true
-      };
-      if (effectiveCompanyId) {
-        userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
-      }
-      const qualityUsers = await User.find(userQuery).select("email").lean();
-      for (const u of qualityUsers) {
-        const email = normalizeEmail(u.email);
-        if (email) recipientSet.add(email);
-      }
-    }
-  }
-  if (roles.includes("Management")) {
-    const mgmtRoles = await Role.find({
-      name: { $in: ["Management", "Director", "Managing Director", "Plant Head"] },
-      active: true
-    }).select("_id").lean();
-    const roleIds = mgmtRoles.map((r) => r._id);
-    if (roleIds.length > 0) {
-      const userQuery = {
-        role: { $in: roleIds },
-        active: true
-      };
-      if (effectiveCompanyId) {
-        userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
-      }
-      const mgmtUsers = await User.find(userQuery).select("email").lean();
-      for (const u of mgmtUsers) {
-        const email = normalizeEmail(u.email);
-        if (email) recipientSet.add(email);
-      }
-    }
-  }
-  if (roles.includes("Master Admin")) {
-    const adminRole = await Role.findOne({ name: "Master Admin" }).select("_id").lean();
-    if (adminRole) {
-      const admins = await User.find({ role: adminRole._id, active: true }).select("email").lean();
-      for (const admin of admins) {
-        const email = normalizeEmail(admin.email);
-        if (email) recipientSet.add(email);
-      }
-    }
-  }
-  if (options.excludeEmails) {
-    for (const raw of options.excludeEmails) {
-      const email = normalizeEmail(raw);
-      if (email) recipientSet.delete(email);
-    }
-  }
-  return Array.from(recipientSet);
 }
 
 // server/domain/numbering.ts
@@ -4531,12 +4692,12 @@ function asyncHandler(fn) {
 }
 
 // server/routes/analytics.routes.ts
-var scopeQuery = z3.object({
+var scopeQuery = z5.object({
   company: objectIdSchema.optional(),
-  startDate: z3.coerce.date().optional(),
-  endDate: z3.coerce.date().optional()
+  startDate: z5.coerce.date().optional(),
+  endDate: z5.coerce.date().optional()
 });
-var reportQuery = scopeQuery.extend({ from: z3.coerce.date().optional(), to: z3.coerce.date().optional() });
+var reportQuery = scopeQuery.extend({ from: z5.coerce.date().optional(), to: z5.coerce.date().optional() });
 var analyticsRouter = Router();
 analyticsRouter.use(requireUser);
 analyticsRouter.get(
@@ -4628,7 +4789,7 @@ reportRouter.get(
 
 // server/routes/attachment.routes.ts
 import { Router as Router2 } from "express";
-import { z as z4 } from "zod";
+import { z as z6 } from "zod";
 
 // server/models/Attachment.ts
 import mongoose16, { Schema as Schema15 } from "mongoose";
@@ -4840,7 +5001,7 @@ async function capaContext(capaId, user) {
 attachmentRouter.post(
   "/signature",
   asyncHandler(async (req, res) => {
-    const input = z4.object({ purpose: z4.enum(ATTACHMENT_PURPOSES) }).parse(req.body);
+    const input = z6.object({ purpose: z6.enum(ATTACHMENT_PURPOSES) }).parse(req.body);
     const actor = await requireActor(req.user);
     const allowed = isMasterAdmin(actor) || input.purpose === "company.logo" && isMasterAdmin(actor) || (input.purpose === "capa.evidence" || input.purpose === "capa.effectiveness") && (hasPermission(actor, "capa.edit.own") || hasPermission(actor, "complaint.assign") || hasPermission(actor, "capa.verify")) || (input.purpose === "complaint.attachment" || input.purpose === "d6.document") && (hasPermission(actor, "complaint.create") || hasPermission(actor, "complaint.edit") || hasPermission(actor, "complaint.edit.own") || hasPermission(actor, "complaint.edit.dept") || hasPermission(actor, "complaint.assign"));
     if (!allowed) throw httpError(403, "You do not have permission to upload files for this purpose");
@@ -4850,13 +5011,13 @@ attachmentRouter.post(
 attachmentRouter.post(
   "/confirm",
   asyncHandler(async (req, res) => {
-    const input = z4.object({
-      publicId: z4.string().trim().min(1).max(300),
-      originalFilename: z4.string().trim().min(1).max(255),
-      mimeType: z4.enum(ALLOWED_UPLOAD_MIME_TYPES),
-      entityType: z4.enum(["Complaint", "Capa", "Company"]),
+    const input = z6.object({
+      publicId: z6.string().trim().min(1).max(300),
+      originalFilename: z6.string().trim().min(1).max(255),
+      mimeType: z6.enum(ALLOWED_UPLOAD_MIME_TYPES),
+      entityType: z6.enum(["Complaint", "Capa", "Company"]),
       entityId: objectIdSchema,
-      purpose: z4.enum(ATTACHMENT_PURPOSES),
+      purpose: z6.enum(ATTACHMENT_PURPOSES),
       company: objectIdSchema.optional()
     }).parse(req.body);
     if (!ENTITY_PURPOSES[input.entityType].includes(input.purpose)) {
@@ -4884,7 +5045,7 @@ attachmentRouter.post(
 attachmentRouter.get(
   "/",
   asyncHandler(async (req, res) => {
-    const query = z4.object({ entityType: z4.enum(["Complaint", "Capa", "Company"]), entityId: objectIdSchema }).parse(req.query);
+    const query = z6.object({ entityType: z6.enum(["Complaint", "Capa", "Company"]), entityId: objectIdSchema }).parse(req.query);
     await connectDB();
     if (query.entityType === "Complaint") {
       await loadComplaintContext(query.entityId, req.user);
@@ -4923,7 +5084,7 @@ attachmentRouter.delete(
 
 // server/routes/audit.routes.ts
 import { Router as Router3 } from "express";
-import { z as z5 } from "zod";
+import { z as z7 } from "zod";
 var auditRouter = Router3();
 auditRouter.use(requireUser);
 auditRouter.get(
@@ -4931,12 +5092,12 @@ auditRouter.get(
   requirePermission("audit.view"),
   asyncHandler(async (req, res) => {
     const query = listQuerySchema.extend({
-      action: z5.enum(AUDIT_ACTIONS).optional(),
-      entity: z5.string().trim().max(60).optional(),
-      entityId: z5.string().trim().max(60).optional(),
-      actor: z5.string().trim().max(60).optional(),
-      from: z5.coerce.date().optional(),
-      to: z5.coerce.date().optional()
+      action: z7.enum(AUDIT_ACTIONS).optional(),
+      entity: z7.string().trim().max(60).optional(),
+      entityId: z7.string().trim().max(60).optional(),
+      actor: z7.string().trim().max(60).optional(),
+      from: z7.coerce.date().optional(),
+      to: z7.coerce.date().optional()
     }).parse(req.query);
     await connectDB();
     const filter = {};
@@ -4962,26 +5123,6 @@ auditRouter.get(
 
 // server/routes/auth.routes.ts
 import { Router as Router4 } from "express";
-
-// shared/schemas/auth.ts
-import { z as z6 } from "zod";
-var usernameSchema = z6.string().trim().min(3).max(80).toLowerCase();
-var passwordSchema = z6.string().min(8, "Password must be at least 8 characters").max(200).regex(/[A-Za-z]/, "Password must include a letter").regex(/[0-9]/, "Password must include a number");
-var loginSchema = z6.object({
-  username: usernameSchema,
-  password: z6.string().min(1).max(200)
-});
-var forgotPasswordSchema = z6.object({
-  emailOrUsername: z6.string().trim().min(3).max(160)
-});
-var resetPasswordSchema = z6.object({
-  token: z6.string().min(32).max(256),
-  newPassword: passwordSchema
-});
-var changePasswordSchema = z6.object({
-  currentPassword: z6.string().min(1).max(200),
-  newPassword: passwordSchema
-});
 
 // server/middleware/rate-limit.ts
 var buckets = /* @__PURE__ */ new Map();
@@ -5169,47 +5310,47 @@ authRouter.post(
 
 // server/routes/capa.routes.ts
 import { Router as Router5 } from "express";
-import { z as z8 } from "zod";
+import { z as z9 } from "zod";
 
 // shared/schemas/capa.ts
-import { z as z7 } from "zod";
-var capaCreateSchema = z7.object({
-  type: z7.enum(CAPA_TYPES).default("Corrective"),
-  action: z7.string().trim().min(5, "Describe the action in at least 5 characters").max(4e3),
+import { z as z8 } from "zod";
+var capaCreateSchema = z8.object({
+  type: z8.enum(CAPA_TYPES).default("Corrective"),
+  action: z8.string().trim().min(5, "Describe the action in at least 5 characters").max(4e3),
   owner: objectIdSchema,
   department: objectIdSchema.optional(),
   priority: objectIdSchema.optional(),
-  dueDate: z7.coerce.date(),
-  status: z7.enum(CAPA_STATUSES).default("Open"),
-  evidence: z7.string().trim().max(4e3).optional().default("")
+  dueDate: z8.coerce.date(),
+  status: z8.enum(CAPA_STATUSES).default("Open"),
+  evidence: z8.string().trim().max(4e3).optional().default("")
 });
 var capaUpdateSchema = capaCreateSchema.partial().extend({
-  completedAt: z7.coerce.date().optional(),
-  delayReason: z7.string().trim().max(200).optional()
+  completedAt: z8.coerce.date().optional(),
+  delayReason: z8.string().trim().max(200).optional()
 });
 var capaListQuerySchema = listQuerySchema.extend({
   company: objectIdSchema.optional(),
   complaint: objectIdSchema.optional(),
   owner: objectIdSchema.optional(),
   department: objectIdSchema.optional(),
-  status: z7.enum(CAPA_STATUSES).optional(),
-  type: z7.enum(CAPA_TYPES).optional(),
-  effectiveness: z7.enum(CAPA_EFFECTIVENESS).optional(),
-  evidenceReview: z7.enum(EVIDENCE_REVIEW_STATUSES).optional(),
-  overdue: z7.coerce.boolean().optional(),
-  dueFrom: z7.coerce.date().optional(),
-  dueTo: z7.coerce.date().optional()
+  status: z8.enum(CAPA_STATUSES).optional(),
+  type: z8.enum(CAPA_TYPES).optional(),
+  effectiveness: z8.enum(CAPA_EFFECTIVENESS).optional(),
+  evidenceReview: z8.enum(EVIDENCE_REVIEW_STATUSES).optional(),
+  overdue: z8.coerce.boolean().optional(),
+  dueFrom: z8.coerce.date().optional(),
+  dueTo: z8.coerce.date().optional()
 });
-var evidenceReviewSchema = z7.object({
-  decision: z7.enum(["Accepted", "Rejected"]),
-  remarks: z7.string().trim().max(4e3).optional().default("")
+var evidenceReviewSchema = z8.object({
+  decision: z8.enum(["Accepted", "Rejected"]),
+  remarks: z8.string().trim().max(4e3).optional().default("")
 });
-var effectivenessSchema = z7.object({
-  result: z7.enum(CAPA_EFFECTIVENESS),
-  verificationMethod: z7.string().trim().min(2, "Verification method is required").max(400),
-  effectivenessEvidence: z7.string().trim().min(2, "Evidence reference is required").max(4e3),
-  remarks: z7.string().trim().max(4e3).optional().default(""),
-  verifiedAt: z7.coerce.date().optional()
+var effectivenessSchema = z8.object({
+  result: z8.enum(CAPA_EFFECTIVENESS),
+  verificationMethod: z8.string().trim().min(2, "Verification method is required").max(400),
+  effectivenessEvidence: z8.string().trim().min(2, "Evidence reference is required").max(4e3),
+  remarks: z8.string().trim().max(4e3).optional().default(""),
+  verifiedAt: z8.coerce.date().optional()
 });
 
 // server/services/capa.service.ts
@@ -5660,7 +5801,7 @@ capaRouter.delete(
 capaRouter.post(
   "/:id/evidence",
   asyncHandler(async (req, res) => {
-    const input = z8.object({ attachment: objectIdSchema, description: z8.string().trim().max(500).optional().default("") }).parse(req.body);
+    const input = z9.object({ attachment: objectIdSchema, description: z9.string().trim().max(500).optional().default("") }).parse(req.body);
     await connectDB();
     const capa = await attachEvidence(req.params.id, new Types9.ObjectId(input.attachment), input.description, req.user);
     return ok(res, { capa }, 201);
@@ -5687,15 +5828,15 @@ capaRouter.post(
 
 // server/routes/complaint.routes.ts
 import { Router as Router6 } from "express";
-import { z as z10 } from "zod";
+import { z as z11 } from "zod";
 
 // shared/schemas/complaint.ts
-import { z as z9 } from "zod";
-var optionalText = (max) => z9.string().trim().max(max).optional().default("");
-var baseComplaintSchema = z9.object({
-  type: z9.enum(COMPLAINT_TYPES),
+import { z as z10 } from "zod";
+var optionalText = (max) => z10.string().trim().max(max).optional().default("");
+var baseComplaintSchema = z10.object({
+  type: z10.enum(COMPLAINT_TYPES),
   company: objectIdSchema,
-  receivedAt: z9.coerce.date(),
+  receivedAt: z10.coerce.date(),
   priority: objectIdSchema,
   source: optionalText(80),
   reportedBy: optionalText(160),
@@ -5709,181 +5850,181 @@ var baseComplaintSchema = z9.object({
   internalDept: objectIdSchema.optional(),
   againstDept: objectIdSchema.optional(),
   responsibleDept: objectIdSchema.optional(),
-  category: z9.string().trim().min(1, "Category is required").max(120),
+  category: z10.string().trim().min(1, "Category is required").max(120),
   subCategory: optionalText(120),
-  description: z9.string().trim().min(10, "Describe the complaint in at least 10 characters").max(5e3),
+  description: z10.string().trim().min(10, "Describe the complaint in at least 10 characters").max(5e3),
   owner: objectIdSchema.optional(),
-  attachments: z9.array(objectIdSchema).max(20).default([])
+  attachments: z10.array(objectIdSchema).max(20).default([])
 });
 var complaintCreateSchema = baseComplaintSchema.superRefine((value, ctx) => {
   if (value.type === "External") {
     if (!value.customer) {
-      ctx.addIssue({ code: z9.ZodIssueCode.custom, path: ["customer"], message: "Customer name is required for an external complaint" });
+      ctx.addIssue({ code: z10.ZodIssueCode.custom, path: ["customer"], message: "Customer name is required for an external complaint" });
     }
     if (!value.responsibleDept) {
-      ctx.addIssue({ code: z9.ZodIssueCode.custom, path: ["responsibleDept"], message: "Responsible department is required" });
+      ctx.addIssue({ code: z10.ZodIssueCode.custom, path: ["responsibleDept"], message: "Responsible department is required" });
     }
   } else {
     if (!value.internalDept) {
       ctx.addIssue({
-        code: z9.ZodIssueCode.custom,
+        code: z10.ZodIssueCode.custom,
         path: ["internalDept"],
         message: "Raising department is required for an internal complaint"
       });
     }
     if (!value.againstDept) {
       ctx.addIssue({
-        code: z9.ZodIssueCode.custom,
+        code: z10.ZodIssueCode.custom,
         path: ["againstDept"],
         message: "Against department is required for an internal complaint"
       });
     }
   }
 });
-var complaintUpdateSchema = baseComplaintSchema.partial().omit({ type: true, company: true }).extend({ status: z9.enum(COMPLAINT_STATUSES).optional() });
+var complaintUpdateSchema = baseComplaintSchema.partial().omit({ type: true, company: true }).extend({ status: z10.enum(COMPLAINT_STATUSES).optional() });
 var complaintListQuerySchema = listQuerySchema.extend({
   company: objectIdSchema.optional(),
-  type: z9.enum(COMPLAINT_TYPES).optional(),
-  status: z9.enum(COMPLAINT_STATUSES).optional(),
+  type: z10.enum(COMPLAINT_TYPES).optional(),
+  status: z10.enum(COMPLAINT_STATUSES).optional(),
   priority: objectIdSchema.optional(),
-  category: z9.string().trim().max(120).optional(),
+  category: z10.string().trim().max(120).optional(),
   responsibleDept: objectIdSchema.optional(),
   owner: objectIdSchema.optional(),
-  isRepeat: z9.coerce.boolean().optional(),
-  tat: z9.enum(["on-time", "due-soon", "overdue"]).optional(),
-  receivedFrom: z9.coerce.date().optional(),
-  receivedTo: z9.coerce.date().optional()
+  isRepeat: z10.coerce.boolean().optional(),
+  tat: z10.enum(["on-time", "due-soon", "overdue"]).optional(),
+  receivedFrom: z10.coerce.date().optional(),
+  receivedTo: z10.coerce.date().optional()
 });
-var delayInputSchema = z9.object({
-  category: z9.string().trim().min(1).max(160).optional(),
-  explanation: z9.string().trim().max(2e3).optional(),
-  recovery: z9.string().trim().max(2e3).optional()
+var delayInputSchema = z10.object({
+  category: z10.string().trim().min(1).max(160).optional(),
+  explanation: z10.string().trim().max(2e3).optional(),
+  recovery: z10.string().trim().max(2e3).optional()
 });
-var stageCompleteSchema = z9.object({
-  stage: z9.enum(WORKFLOW_STAGES),
+var stageCompleteSchema = z10.object({
+  stage: z10.enum(WORKFLOW_STAGES),
   notes: optionalText(2e3),
   containmentNotes: optionalText(2e3),
   delay: delayInputSchema.optional()
 });
-var actionRowSchema = z9.object({
-  action: z9.string().trim().max(2e3).optional().default(""),
-  resp: z9.string().trim().max(160).optional().default(""),
-  target: z9.string().trim().max(40).optional().default(""),
-  status: z9.string().trim().max(40).optional().default("Open"),
-  remarks: z9.string().trim().max(2e3).optional().default(""),
-  ctqImpact: z9.string().trim().max(500).optional().default(""),
-  customerApproval: z9.string().trim().max(200).optional().default("")
+var actionRowSchema = z10.object({
+  action: z10.string().trim().max(2e3).optional().default(""),
+  resp: z10.string().trim().max(160).optional().default(""),
+  target: z10.string().trim().max(40).optional().default(""),
+  status: z10.string().trim().max(40).optional().default("Open"),
+  remarks: z10.string().trim().max(2e3).optional().default(""),
+  ctqImpact: z10.string().trim().max(500).optional().default(""),
+  customerApproval: z10.string().trim().max(200).optional().default("")
 });
-var fishboneSchema = z9.object(
+var fishboneSchema = z10.object(
   FISHBONE_CATEGORIES.reduce((acc, category) => {
-    acc[category] = z9.array(z9.string().trim().max(500)).max(20).optional();
+    acc[category] = z10.array(z10.string().trim().max(500)).max(20).optional();
     return acc;
   }, {})
 );
-var eightDSchema = z9.object({
-  d0: z9.string().trim().max(4e3).optional(),
-  d1Team: z9.array(
-    z9.object({
+var eightDSchema = z10.object({
+  d0: z10.string().trim().max(4e3).optional(),
+  d1Team: z10.array(
+    z10.object({
       employee: objectIdSchema.optional(),
-      name: z9.string().trim().max(160).optional().default(""),
-      dept: z9.string().trim().max(120).optional().default(""),
-      designation: z9.string().trim().max(120).optional().default(""),
-      email: z9.string().trim().max(160).optional().default(""),
-      role: z9.string().trim().max(160).optional().default("")
+      name: z10.string().trim().max(160).optional().default(""),
+      dept: z10.string().trim().max(120).optional().default(""),
+      designation: z10.string().trim().max(120).optional().default(""),
+      email: z10.string().trim().max(160).optional().default(""),
+      role: z10.string().trim().max(160).optional().default("")
     })
   ).max(30).optional(),
-  d2: z9.object({
-    what: z9.string().trim().max(2e3).optional(),
-    where: z9.string().trim().max(2e3).optional(),
-    when: z9.string().trim().max(2e3).optional(),
-    who: z9.string().trim().max(2e3).optional(),
-    involved: z9.string().trim().max(2e3).optional(),
-    howMany: z9.string().trim().max(500).optional(),
-    how: z9.string().trim().max(2e3).optional()
+  d2: z10.object({
+    what: z10.string().trim().max(2e3).optional(),
+    where: z10.string().trim().max(2e3).optional(),
+    when: z10.string().trim().max(2e3).optional(),
+    who: z10.string().trim().max(2e3).optional(),
+    involved: z10.string().trim().max(2e3).optional(),
+    howMany: z10.string().trim().max(500).optional(),
+    how: z10.string().trim().max(2e3).optional()
   }).optional(),
-  d3Actions: z9.array(actionRowSchema).max(50).optional(),
-  d4QcTools: z9.array(z9.string().trim().max(80)).max(20).optional(),
-  d4Occurrence: z9.string().trim().max(4e3).optional(),
-  d4Escape: z9.string().trim().max(4e3).optional(),
-  d4Systemic: z9.string().trim().max(4e3).optional(),
-  rootCauseCategory: z9.string().trim().max(120).optional(),
-  fiveWhy: z9.object({
-    occurrence: z9.array(z9.string().trim().max(1e3)).max(10).optional(),
-    escape: z9.array(z9.string().trim().max(1e3)).max(10).optional(),
-    systemic: z9.array(z9.string().trim().max(1e3)).max(10).optional(),
-    singleChain: z9.array(z9.string().trim().max(1e3)).max(10).optional()
+  d3Actions: z10.array(actionRowSchema).max(50).optional(),
+  d4QcTools: z10.array(z10.string().trim().max(80)).max(20).optional(),
+  d4Occurrence: z10.string().trim().max(4e3).optional(),
+  d4Escape: z10.string().trim().max(4e3).optional(),
+  d4Systemic: z10.string().trim().max(4e3).optional(),
+  rootCauseCategory: z10.string().trim().max(120).optional(),
+  fiveWhy: z10.object({
+    occurrence: z10.array(z10.string().trim().max(1e3)).max(10).optional(),
+    escape: z10.array(z10.string().trim().max(1e3)).max(10).optional(),
+    systemic: z10.array(z10.string().trim().max(1e3)).max(10).optional(),
+    singleChain: z10.array(z10.string().trim().max(1e3)).max(10).optional()
   }).optional(),
   fishbone: fishboneSchema.optional(),
-  d5Occurrence: z9.array(actionRowSchema).max(50).optional(),
-  d5Escape: z9.array(actionRowSchema).max(50).optional(),
-  d5Systemic: z9.array(actionRowSchema).max(50).optional(),
-  d5Safety: z9.string().trim().max(2e3).optional(),
-  d6Verify: z9.array(actionRowSchema).max(50).optional(),
-  d6DocsList: z9.array(
-    z9.object({
-      docType: z9.enum(D6_DOCUMENT_TYPES),
-      status: z9.enum(D6_DOCUMENT_STATUSES),
+  d5Occurrence: z10.array(actionRowSchema).max(50).optional(),
+  d5Escape: z10.array(actionRowSchema).max(50).optional(),
+  d5Systemic: z10.array(actionRowSchema).max(50).optional(),
+  d5Safety: z10.string().trim().max(2e3).optional(),
+  d6Verify: z10.array(actionRowSchema).max(50).optional(),
+  d6DocsList: z10.array(
+    z10.object({
+      docType: z10.enum(D6_DOCUMENT_TYPES),
+      status: z10.enum(D6_DOCUMENT_STATUSES),
       attachment: objectIdSchema.nullable().optional(),
-      revision: z9.string().trim().max(40).optional().default(""),
-      revDate: z9.string().trim().max(40).optional().default(""),
-      approver: z9.string().trim().max(160).optional().default(""),
-      naJustification: z9.string().trim().max(1e3).optional().default("")
+      revision: z10.string().trim().max(40).optional().default(""),
+      revDate: z10.string().trim().max(40).optional().default(""),
+      approver: z10.string().trim().max(160).optional().default(""),
+      naJustification: z10.string().trim().max(1e3).optional().default("")
     })
   ).max(D6_DOCUMENT_TYPES.length).optional(),
-  d6Horizontal: z9.string().trim().max(4e3).optional(),
-  d7ShortTermDate: z9.string().trim().max(40).optional(),
-  d7RepeatObserved: z9.boolean().optional(),
-  d7Regulatory: z9.string().trim().max(2e3).optional(),
-  d7Actions: z9.array(actionRowSchema).max(50).optional(),
-  d7LongTermDate: z9.string().trim().max(40).optional(),
-  d7LongTermRepeatObserved: z9.boolean().optional(),
-  d7LongTermResult: z9.enum(D7_LT_RESULTS).or(z9.literal("")).optional(),
-  d7LongTermNotes: z9.string().trim().max(4e3).optional(),
-  d8Recognition: z9.string().trim().max(4e3).optional(),
-  d8ReviewedBy: z9.string().trim().max(160).optional(),
-  d8ClosedDate: z9.string().trim().max(40).optional()
+  d6Horizontal: z10.string().trim().max(4e3).optional(),
+  d7ShortTermDate: z10.string().trim().max(40).optional(),
+  d7RepeatObserved: z10.boolean().optional(),
+  d7Regulatory: z10.string().trim().max(2e3).optional(),
+  d7Actions: z10.array(actionRowSchema).max(50).optional(),
+  d7LongTermDate: z10.string().trim().max(40).optional(),
+  d7LongTermRepeatObserved: z10.boolean().optional(),
+  d7LongTermResult: z10.enum(D7_LT_RESULTS).or(z10.literal("")).optional(),
+  d7LongTermNotes: z10.string().trim().max(4e3).optional(),
+  d8Recognition: z10.string().trim().max(4e3).optional(),
+  d8ReviewedBy: z10.string().trim().max(160).optional(),
+  d8ClosedDate: z10.string().trim().max(40).optional()
 });
-var internalInvestigationSchema = z9.object({
-  d2: z9.object({ what: z9.string().trim().max(2e3).optional() }).optional(),
-  fiveWhy: z9.object({ singleChain: z9.array(z9.string().trim().max(1e3)).max(10).optional() }).optional(),
-  d4Occurrence: z9.string().trim().max(4e3).optional(),
-  rootCauseCategory: z9.string().trim().max(120).optional(),
-  internalInvestigation: z9.object({
-    summary: z9.string().trim().max(4e3).optional(),
-    findings: z9.string().trim().max(4e3).optional(),
-    correctiveAction: z9.string().trim().max(4e3).optional(),
-    evidence: z9.string().trim().max(4e3).optional()
+var internalInvestigationSchema = z10.object({
+  d2: z10.object({ what: z10.string().trim().max(2e3).optional() }).optional(),
+  fiveWhy: z10.object({ singleChain: z10.array(z10.string().trim().max(1e3)).max(10).optional() }).optional(),
+  d4Occurrence: z10.string().trim().max(4e3).optional(),
+  rootCauseCategory: z10.string().trim().max(120).optional(),
+  internalInvestigation: z10.object({
+    summary: z10.string().trim().max(4e3).optional(),
+    findings: z10.string().trim().max(4e3).optional(),
+    correctiveAction: z10.string().trim().max(4e3).optional(),
+    evidence: z10.string().trim().max(4e3).optional()
   }).optional()
 });
-var closeComplaintSchema = z9.object({
-  closureRemarks: z9.string().trim().min(5, "Closure remarks are required").max(4e3),
-  noRepeatConfirmed: z9.boolean().default(false),
-  force: z9.boolean().default(false)
+var closeComplaintSchema = z10.object({
+  closureRemarks: z10.string().trim().min(5, "Closure remarks are required").max(4e3),
+  noRepeatConfirmed: z10.boolean().default(false),
+  force: z10.boolean().default(false)
 });
-var reopenComplaintSchema = z9.object({
-  reason: z9.string().trim().min(5, "A reopen reason is required").max(2e3)
+var reopenComplaintSchema = z10.object({
+  reason: z10.string().trim().min(5, "A reopen reason is required").max(2e3)
 });
-var signComplaintSchema = z9.object({
-  role: z9.enum(SIGNATURE_ROLES),
-  notes: z9.string().trim().max(1e3).optional().default("")
+var signComplaintSchema = z10.object({
+  role: z10.enum(SIGNATURE_ROLES),
+  notes: z10.string().trim().max(1e3).optional().default("")
 });
-var revokeSignatureSchema = z9.object({
-  role: z9.enum(SIGNATURE_ROLES),
-  reason: z9.string().trim().min(5, "A revocation reason is required").max(1e3)
+var revokeSignatureSchema = z10.object({
+  role: z10.enum(SIGNATURE_ROLES),
+  reason: z10.string().trim().min(5, "A revocation reason is required").max(1e3)
 });
-var repeatReviewSchema = z9.object({
-  isRepeat: z9.boolean(),
-  remarks: z9.string().trim().max(2e3).optional().default("")
+var repeatReviewSchema = z10.object({
+  isRepeat: z10.boolean(),
+  remarks: z10.string().trim().max(2e3).optional().default("")
 });
-var noteCreateSchema = z9.object({
-  kind: z9.enum(NOTE_KINDS).default("Note"),
-  referenceDate: z9.coerce.date().optional(),
-  content: z9.string().trim().min(2).max(8e3)
+var noteCreateSchema = z10.object({
+  kind: z10.enum(NOTE_KINDS).default("Note"),
+  referenceDate: z10.coerce.date().optional(),
+  content: z10.string().trim().min(2).max(8e3)
 });
-var overallEffectivenessSchema = z9.object({
-  result: z9.enum(["Effective", "Not Effective"]),
-  at: z9.coerce.date().optional(),
-  comments: z9.string().trim().max(4e3).optional().default("")
+var overallEffectivenessSchema = z10.object({
+  result: z10.enum(["Effective", "Not Effective"]),
+  at: z10.coerce.date().optional(),
+  comments: z10.string().trim().max(4e3).optional().default("")
 });
 
 // server/models/ComplaintNote.ts
@@ -6092,7 +6233,7 @@ complaintRouter.delete(
   "/:id",
   requirePermission("complaint.delete"),
   asyncHandler(async (req, res) => {
-    const input = z10.object({ confirmation: z10.string().trim().min(1) }).parse(req.body);
+    const input = z11.object({ confirmation: z11.string().trim().min(1) }).parse(req.body);
     await connectDB();
     return ok(res, await deleteComplaint(req.params.id, input.confirmation, req.user));
   })
@@ -6100,56 +6241,56 @@ complaintRouter.delete(
 
 // server/routes/configuration.routes.ts
 import { Router as Router7 } from "express";
-import { z as z12 } from "zod";
+import { z as z13 } from "zod";
 
 // shared/schemas/configuration.ts
-import { z as z11 } from "zod";
-var tatConfigSchema = z11.object({
+import { z as z12 } from "zod";
+var tatConfigSchema = z12.object({
   company: objectIdSchema.nullable().optional(),
-  ackHours: z11.number().int().min(1).max(2e3),
-  containmentDays: z11.number().int().min(1).max(365),
-  rcaDays: z11.number().int().min(1).max(365),
-  capaDays: z11.number().int().min(1).max(365),
-  d3ContainmentDays: z11.number().int().min(1).max(365),
-  d5CorrectiveActionDays: z11.number().int().min(1).max(365),
-  d6VerificationDays: z11.number().int().min(1).max(365),
-  d7ShortTermDays: z11.number().int().min(1).max(730),
-  d7LongTermDays: z11.number().int().min(1).max(730),
-  repeatWindowDays: z11.number().int().min(1).max(730),
-  dueSoonHours: z11.number().int().min(1).max(720)
+  ackHours: z12.number().int().min(1).max(2e3),
+  containmentDays: z12.number().int().min(1).max(365),
+  rcaDays: z12.number().int().min(1).max(365),
+  capaDays: z12.number().int().min(1).max(365),
+  d3ContainmentDays: z12.number().int().min(1).max(365),
+  d5CorrectiveActionDays: z12.number().int().min(1).max(365),
+  d6VerificationDays: z12.number().int().min(1).max(365),
+  d7ShortTermDays: z12.number().int().min(1).max(730),
+  d7LongTermDays: z12.number().int().min(1).max(730),
+  repeatWindowDays: z12.number().int().min(1).max(730),
+  dueSoonHours: z12.number().int().min(1).max(720)
 });
-var escalationConfigSchema = z11.object({
+var escalationConfigSchema = z12.object({
   company: objectIdSchema.nullable().optional(),
-  levels: z11.array(
-    z11.object({
-      level: z11.number().int().min(1).max(10),
-      name: z11.string().trim().min(2).max(80),
-      triggerHoursOverdue: z11.number().int().min(0).max(8760)
+  levels: z12.array(
+    z12.object({
+      level: z12.number().int().min(1).max(10),
+      name: z12.string().trim().min(2).max(80),
+      triggerHoursOverdue: z12.number().int().min(0).max(8760)
     })
   ).min(1).max(10),
-  reminderPercentages: z11.array(z11.number().int().min(1).max(100)).min(1).max(10),
-  active: z11.boolean().default(true)
+  reminderPercentages: z12.array(z12.number().int().min(1).max(100)).min(1).max(10),
+  active: z12.boolean().default(true)
 });
-var numberingConfigSchema = z11.object({
+var numberingConfigSchema = z12.object({
   company: objectIdSchema,
-  prefix: z11.string().trim().min(2).max(40),
-  sequencePadding: z11.number().int().min(3).max(10).default(5),
-  capaSequencePadding: z11.number().int().min(2).max(6).default(2),
-  resetOnFinancialYear: z11.boolean().default(true),
-  active: z11.boolean().default(true)
+  prefix: z12.string().trim().min(2).max(40),
+  sequencePadding: z12.number().int().min(3).max(10).default(5),
+  capaSequencePadding: z12.number().int().min(2).max(6).default(2),
+  resetOnFinancialYear: z12.boolean().default(true),
+  active: z12.boolean().default(true)
 });
-var simpleListItemSchema = z11.object({
-  name: z11.string().trim().min(1).max(160),
-  order: z11.number().int().min(0).max(999).default(0),
-  active: z11.boolean().default(true)
+var simpleListItemSchema = z12.object({
+  name: z12.string().trim().min(1).max(160),
+  order: z12.number().int().min(0).max(999).default(0),
+  active: z12.boolean().default(true)
 });
 var categorySchema = simpleListItemSchema.extend({
-  complaintType: z11.enum(COMPLAINT_TYPES),
+  complaintType: z12.enum(COMPLAINT_TYPES),
   parent: objectIdSchema.nullable().optional()
 });
 var prioritySchema = simpleListItemSchema.extend({
-  color: z11.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a hex colour"),
-  tatMultiplier: z11.number().min(0.1).max(10)
+  color: z12.string().trim().regex(/^#[0-9a-fA-F]{6}$/, "Use a hex colour"),
+  tatMultiplier: z12.number().min(0.1).max(10)
 });
 
 // server/services/master-delete.service.ts
@@ -6288,7 +6429,7 @@ configurationRouter.patch(
   requirePermission("*"),
   asyncHandler(async (req, res) => {
     const input = categorySchema.partial().parse(req.body);
-    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    const params = z13.object({ id: objectIdSchema }).parse(req.params);
     await connectDB();
     const before = await Category.findById(params.id).lean();
     if (!before) throw httpError(404, "Category not found");
@@ -6313,7 +6454,7 @@ configurationRouter.patch(
   requirePermission("*"),
   asyncHandler(async (req, res) => {
     const input = prioritySchema.partial().parse(req.body);
-    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    const params = z13.object({ id: objectIdSchema }).parse(req.params);
     await connectDB();
     const before = await Priority.findById(params.id).lean();
     if (!before) throw httpError(404, "Priority not found");
@@ -6326,7 +6467,7 @@ configurationRouter.delete(
   "/priorities/:id",
   requirePermission("*"),
   asyncHandler(async (req, res) => {
-    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    const params = z13.object({ id: objectIdSchema }).parse(req.params);
     await connectDB();
     const priority = await Priority.findById(params.id).lean();
     if (!priority) throw httpError(404, "Priority not found");
@@ -6343,7 +6484,7 @@ configurationRouter.delete(
   "/categories/:id",
   requirePermission("*"),
   asyncHandler(async (req, res) => {
-    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    const params = z13.object({ id: objectIdSchema }).parse(req.params);
     await connectDB();
     const category = await Category.findById(params.id).lean();
     if (!category) throw httpError(404, "Category not found");
@@ -6360,7 +6501,7 @@ configurationRouter.delete(
     const key = req.params.list;
     const model = listModels[key];
     if (!model) throw httpError(404, "Unknown configuration list");
-    const params = z12.object({ id: objectIdSchema }).parse(req.params);
+    const params = z13.object({ id: objectIdSchema }).parse(req.params);
     await connectDB();
     const before = await model.findById(params.id).lean();
     if (!before) throw httpError(404, "Item not found");
@@ -6392,7 +6533,7 @@ healthRouter.get(
 
 // server/routes/import.routes.ts
 import { Router as Router9 } from "express";
-import { z as z14 } from "zod";
+import { z as z15 } from "zod";
 
 // server/services/import.service.ts
 import { Types as Types10 } from "mongoose";
@@ -6957,27 +7098,27 @@ async function migrateLegacyDatabase(payload, options, user) {
 
 // server/services/system-backup.service.ts
 import { Types as Types11 } from "mongoose";
-import { z as z13 } from "zod";
-var recordSchema = z13.record(z13.unknown());
-var systemBackupSchema = z13.object({
-  format: z13.literal("ONEPWS_COMPLAINT_CAPA_BACKUP"),
-  version: z13.literal(2),
-  generatedAt: z13.string(),
-  data: z13.object({
-    companies: z13.array(recordSchema),
-    departments: z13.array(recordSchema),
-    employees: z13.array(recordSchema),
-    categories: z13.array(recordSchema),
-    priorities: z13.array(recordSchema),
-    delayReasons: z13.array(recordSchema),
-    rootCauseCategories: z13.array(recordSchema),
-    tatConfigurations: z13.array(recordSchema),
-    escalationConfigurations: z13.array(recordSchema),
-    numberingConfigurations: z13.array(recordSchema),
-    emailTemplates: z13.array(recordSchema),
-    complaints: z13.array(recordSchema),
-    capas: z13.array(recordSchema),
-    attachments: z13.array(recordSchema)
+import { z as z14 } from "zod";
+var recordSchema = z14.record(z14.unknown());
+var systemBackupSchema = z14.object({
+  format: z14.literal("ONEPWS_COMPLAINT_CAPA_BACKUP"),
+  version: z14.literal(2),
+  generatedAt: z14.string(),
+  data: z14.object({
+    companies: z14.array(recordSchema),
+    departments: z14.array(recordSchema),
+    employees: z14.array(recordSchema),
+    categories: z14.array(recordSchema),
+    priorities: z14.array(recordSchema),
+    delayReasons: z14.array(recordSchema),
+    rootCauseCategories: z14.array(recordSchema),
+    tatConfigurations: z14.array(recordSchema),
+    escalationConfigurations: z14.array(recordSchema),
+    numberingConfigurations: z14.array(recordSchema),
+    emailTemplates: z14.array(recordSchema),
+    complaints: z14.array(recordSchema),
+    capas: z14.array(recordSchema),
+    attachments: z14.array(recordSchema)
   })
 });
 var COLLECTION_KEYS = [
@@ -7265,8 +7406,8 @@ async function restoreSystemBackup(payload, options, user) {
 // server/routes/import.routes.ts
 var importRouter = Router9();
 importRouter.use(requireUser);
-var rowsSchema = z14.object({
-  rows: z14.array(z14.record(z14.union([z14.string(), z14.number(), z14.undefined()]))).max(2e3)
+var rowsSchema = z15.object({
+  rows: z15.array(z15.record(z15.union([z15.string(), z15.number(), z15.undefined()]))).max(2e3)
 });
 importRouter.get(
   "/template",
@@ -7288,7 +7429,7 @@ importRouter.post(
   "/complaints/commit",
   requirePermission("complaint.create"),
   asyncHandler(async (req, res) => {
-    const input = rowsSchema.extend({ strategy: z14.enum(["skip-duplicates", "import-and-flag"]).default("skip-duplicates") }).parse(req.body);
+    const input = rowsSchema.extend({ strategy: z15.enum(["skip-duplicates", "import-and-flag"]).default("skip-duplicates") }).parse(req.body);
     await connectDB();
     return ok(res, await commitComplaintImport(input.rows, input.strategy, req.user), 201);
   })
@@ -7305,10 +7446,10 @@ importRouter.post(
   "/restore",
   requirePermission("*"),
   asyncHandler(async (req, res) => {
-    const input = z14.object({
-      payload: z14.unknown(),
-      dryRun: z14.boolean().default(true),
-      confirmation: z14.string().optional()
+    const input = z15.object({
+      payload: z15.unknown(),
+      dryRun: z15.boolean().default(true),
+      confirmation: z15.string().optional()
     }).parse(req.body);
     await connectDB();
     return ok(res, await restoreSystemBackup(input.payload, { dryRun: input.dryRun, confirmation: input.confirmation }, req.user));
@@ -7318,10 +7459,10 @@ importRouter.post(
   "/legacy",
   requirePermission("*"),
   asyncHandler(async (req, res) => {
-    const input = z14.object({
-      payload: z14.unknown(),
-      dryRun: z14.boolean().default(true),
-      confirmation: z14.string().optional()
+    const input = z15.object({
+      payload: z15.unknown(),
+      dryRun: z15.boolean().default(true),
+      confirmation: z15.string().optional()
     }).parse(req.body);
     await connectDB();
     const dryRun = input.dryRun || input.confirmation !== "MIGRATE";
@@ -7332,113 +7473,6 @@ importRouter.post(
 // server/routes/master-admin.routes.ts
 import { Router as Router10 } from "express";
 import { z as z16 } from "zod";
-
-// shared/schemas/master-data.ts
-import { z as z15 } from "zod";
-
-// shared/constants/permissions.ts
-var PERMISSIONS = [
-  "view.all",
-  "view.company",
-  "dash.all",
-  "report.all",
-  "export.all",
-  "complaint.create",
-  "complaint.edit",
-  "complaint.edit.own",
-  "complaint.edit.dept",
-  "complaint.assign",
-  "complaint.close",
-  "complaint.delete",
-  "capa.edit.own",
-  "capa.approve.dept",
-  "capa.verify",
-  "capa.evidence.review",
-  "8d.approve",
-  "audit.view"
-];
-var ROLE_NAMES = [
-  "Master Admin",
-  "Management",
-  "Complaint Coordinator",
-  "Complaint Owner",
-  "Department Head",
-  "CAPA Owner",
-  "Quality Head",
-  "Sales / Customer Service",
-  "Auditor",
-  "Viewer"
-];
-var DEFAULT_ROLE_PERMISSIONS = {
-  "Master Admin": ["*"],
-  Management: ["view.all", "dash.all", "report.all", "export.all"],
-  "Complaint Coordinator": ["complaint.create", "complaint.edit", "complaint.assign", "view.company"],
-  "Complaint Owner": ["complaint.edit.own", "view.company"],
-  "Department Head": ["complaint.edit.dept", "capa.approve.dept", "view.company"],
-  "CAPA Owner": ["capa.edit.own", "view.company"],
-  "Quality Head": ["complaint.close", "capa.verify", "capa.evidence.review", "view.company", "8d.approve"],
-  "Sales / Customer Service": ["complaint.create", "view.company"],
-  Auditor: ["view.all", "audit.view", "report.all"],
-  Viewer: ["view.company"]
-};
-
-// shared/schemas/master-data.ts
-var objectId = z15.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
-var optionalObjectId = objectId.optional();
-var permissionKeySchema = z15.union([z15.enum(PERMISSIONS), z15.literal("*")]);
-var roleCreateSchema = z15.object({
-  name: z15.enum(ROLE_NAMES),
-  permissions: z15.array(permissionKeySchema).min(1),
-  active: z15.boolean().default(true)
-});
-var companyCreateSchema = z15.object({
-  name: z15.string().trim().min(2).max(160),
-  code: z15.string().trim().min(2).max(24).toUpperCase(),
-  logo: z15.object({
-    secureUrl: z15.string().url(),
-    publicId: z15.string().min(1)
-  }).optional(),
-  documentNumber: z15.string().trim().max(80).optional().default(""),
-  revision: z15.string().trim().max(24).optional().default(""),
-  effectiveDate: z15.coerce.date().optional(),
-  complaintNumberingPrefix: z15.string().trim().min(2).max(40),
-  active: z15.boolean().default(true)
-});
-var departmentCreateSchema = z15.object({
-  name: z15.string().trim().min(2).max(120),
-  code: z15.string().trim().max(24).optional().default(""),
-  company: optionalObjectId,
-  active: z15.boolean().default(true)
-});
-var employeeCreateSchema = z15.object({
-  employeeCode: z15.string().trim().min(1).max(40),
-  name: z15.string().trim().min(2).max(160),
-  email: z15.string().trim().email().optional().or(z15.literal("")),
-  designation: z15.string().trim().max(120).optional().default(""),
-  department: objectId,
-  company: objectId,
-  managerName: z15.string().trim().max(160).optional().default(""),
-  managerEmail: z15.string().trim().email().optional().or(z15.literal("")),
-  hodName: z15.string().trim().max(160).optional().default(""),
-  hodEmail: z15.string().trim().email().optional().or(z15.literal("")),
-  linkedUser: optionalObjectId,
-  active: z15.boolean().default(true)
-});
-var userCreateSchema = z15.object({
-  name: z15.string().trim().min(2).max(160),
-  username: z15.string().trim().min(3).max(80).toLowerCase(),
-  email: z15.string().trim().email().optional().or(z15.literal("")),
-  password: passwordSchema,
-  role: objectId,
-  companyIds: z15.array(objectId).default([]),
-  department: optionalObjectId,
-  employee: optionalObjectId,
-  active: z15.boolean().default(true),
-  forcePasswordChange: z15.boolean().default(true)
-});
-var userUpdateSchema = userCreateSchema.partial().omit({ password: true }).strict();
-
-// server/routes/master-admin.routes.ts
 var masterAdminRouter = Router10();
 masterAdminRouter.use(requireUser);
 function escapeRegex(term) {
@@ -7458,7 +7492,7 @@ masterAdminRouter.get(
     if (typeof query.active === "boolean") filter.active = query.active;
     if (query.search) {
       const regex = new RegExp(escapeRegex(query.search), "i");
-      filter.$or = [{ name: regex }, { employeeCode: regex }, { email: regex }, { designation: regex }];
+      filter.$or = [{ name: regex }, { employeeCode: regex }, { email: regex }, { designation: regex }, { managerEmail: regex }, { hodEmail: regex }];
     }
     const [rows, total] = await Promise.all([
       Employee.find(filter).populate("company", "name code").populate("department", "name").sort({ name: 1 }).skip((query.page - 1) * query.pageSize).limit(query.pageSize).lean(),

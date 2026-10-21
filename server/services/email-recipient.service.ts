@@ -5,6 +5,7 @@ import { Role } from "../models/Role";
 import { Employee } from "../models/Employee";
 import { Complaint } from "../models/Complaint";
 import { Capa } from "../models/Capa";
+import { parseEmailList } from "@shared/schemas/master-data";
 
 export type RecipientResolutionOptions = {
   complaintId?: string | Types.ObjectId;
@@ -24,6 +25,23 @@ function normalizeEmail(email: unknown): string | null {
   if (typeof email !== "string") return null;
   const trimmed = email.trim().toLowerCase();
   return EMAIL_REGEX.test(trimmed) ? trimmed : null;
+}
+
+/** Employee Manager / HOD fields may hold several addresses separated by commas or semicolons. */
+function normalizeEmailList(value: unknown): string[] {
+  return parseEmailList(value).filter((email) => EMAIL_REGEX.test(email));
+}
+
+/**
+ * Manager and HOD addresses of the department a complaint / CAPA belongs to,
+ * used to CC them on every department-specific email.
+ */
+export async function resolveDepartmentCc(ref: {
+  complaintId?: string | Types.ObjectId;
+  capaId?: string | Types.ObjectId;
+}): Promise<string[]> {
+  if (!ref.complaintId && !ref.capaId) return [];
+  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head"] });
 }
 
 export async function resolveRecipients(options: RecipientResolutionOptions): Promise<string[]> {
@@ -97,10 +115,12 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
     }
     const employees = await Employee.find(query).lean();
     for (const emp of employees) {
-      const hod = normalizeEmail(emp.hodEmail);
-      if (hod && roles.includes("Department Head")) recipientSet.add(hod);
-      const mgr = normalizeEmail(emp.managerEmail);
-      if (mgr && (roles.includes("Manager") || roles.includes("Department Head"))) recipientSet.add(mgr);
+      if (roles.includes("Department Head")) {
+        for (const hod of normalizeEmailList(emp.hodEmail)) recipientSet.add(hod);
+      }
+      if (roles.includes("Manager") || roles.includes("Department Head")) {
+        for (const mgr of normalizeEmailList(emp.managerEmail)) recipientSet.add(mgr);
+      }
     }
   }
 

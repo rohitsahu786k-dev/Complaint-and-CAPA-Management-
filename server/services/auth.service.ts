@@ -123,10 +123,12 @@ export async function createPasswordResetToken(emailOrUsername: string) {
     $or: [{ email: lookup }, { username: lookup }]
   }).select("+passwordResetTokenHash +passwordResetExpires");
   if (!user) {
+    // Manager / HOD fields can hold several addresses, so match the lookup as one whole entry.
+    const inList = new RegExp(`(^|[,;\\s])${lookup.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}($|[,;\\s])`);
     const employee = lookup.includes("@")
       ? await Employee.findOne({
           active: { $ne: false },
-          $or: [{ email: lookup }, { managerEmail: lookup }, { hodEmail: lookup }]
+          $or: [{ email: lookup }, { managerEmail: inList }, { hodEmail: inList }]
         })
           .select("linkedUser")
           .lean()

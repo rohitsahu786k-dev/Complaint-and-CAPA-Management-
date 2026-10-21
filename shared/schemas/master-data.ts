@@ -5,6 +5,32 @@ import { passwordSchema } from "./auth";
 const objectId = z.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
 const optionalObjectId = objectId.optional();
 
+const EMAIL_PATTERN = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]+$/;
+
+/** Splits a comma / semicolon / newline separated list into lowercase, de-duplicated addresses. */
+export function parseEmailList(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  const seen = new Set<string>();
+  for (const part of value.split(/[,;\n]+/)) {
+    const email = part.trim().toLowerCase();
+    if (email) seen.add(email);
+  }
+  return Array.from(seen);
+}
+
+/** One or more email addresses separated by commas or semicolons, stored as "a@x.com, b@x.com". */
+const emailListSchema = z
+  .string()
+  .optional()
+  .default("")
+  .superRefine((value, ctx) => {
+    const invalid = parseEmailList(value).filter((email) => !EMAIL_PATTERN.test(email));
+    if (invalid.length > 0) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Invalid email address: ${invalid.join(", ")}` });
+    }
+  })
+  .transform((value) => parseEmailList(value).join(", "));
+
 export const permissionKeySchema = z.union([z.enum(PERMISSIONS), z.literal("*")]);
 
 export const roleCreateSchema = z.object({
@@ -44,9 +70,9 @@ export const employeeCreateSchema = z.object({
   department: objectId,
   company: objectId,
   managerName: z.string().trim().max(160).optional().default(""),
-  managerEmail: z.string().trim().email().optional().or(z.literal("")),
+  managerEmail: emailListSchema,
   hodName: z.string().trim().max(160).optional().default(""),
-  hodEmail: z.string().trim().email().optional().or(z.literal("")),
+  hodEmail: emailListSchema,
   linkedUser: optionalObjectId,
   active: z.boolean().default(true)
 });

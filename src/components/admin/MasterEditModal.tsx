@@ -10,6 +10,7 @@ export type EditField = {
   type?: "text" | "number" | "email" | "color" | "select";
   options?: { value: string; label: string }[];
   required?: boolean;
+  placeholder?: string;
   /** Codes and numbering prefixes are stored uppercase. */
   uppercase?: boolean;
   step?: string;
@@ -73,6 +74,7 @@ export function MasterEditModal({
               <Input
                 type={field.type ?? "text"}
                 step={field.step}
+                placeholder={field.placeholder}
                 value={String(form[field.key] ?? "")}
                 onChange={(event) => {
                   const raw = field.uppercase ? event.target.value.toUpperCase() : event.target.value;

@@ -3,6 +3,7 @@ import { getAppUrl } from "../lib/app-url";
 import { DEFAULT_EMAIL_LOGO_URL } from "../lib/email-layout";
 import { escapeHtml, renderTemplate } from "../lib/email-template-renderer";
 import { createTransporter, fromAddress, isSmtpConfigured } from "../lib/mailer";
+import { resolveDepartmentCc } from "./email-recipient.service";
 import { getActiveTemplateByTrigger } from "./email-template.service";
 import { hasDedupeKeyBeenSent, writeEmailLog, getEmailLogById } from "./email-log.service";
 import { EmailLog } from "../models/EmailLog";
@@ -105,8 +106,18 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
     return { status: "skipped", logId: String(skippedLog._id), message: "No recipients" };
   }
 
+  // Department-specific emails always CC the Manager and HOD addresses kept in Master Data > Employees.
+  const departmentCc = await resolveDepartmentCc({
+    complaintId: input.relatedComplaintId,
+    capaId: input.relatedCapaId
+  }).catch(() => [] as string[]);
+  const ccList = Array.from(
+    new Set([...(input.cc ?? []), ...departmentCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
+  ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
+  input = { ...input, cc: ccList };
+
   const appUrl = getAppUrl();
-  const today = new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const today =new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   const normalizedInputData = normalizePortalLinks(input.data, appUrl);
   const mergedData: Record<string, string | number | undefined | null> = {
     companyName: "ONEPWS Private Limited",
