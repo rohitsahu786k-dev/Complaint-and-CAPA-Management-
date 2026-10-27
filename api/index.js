@@ -4979,8 +4979,9 @@ function buildAttachmentMetadata(result, file) {
 var SAFE_FOLDER = /^[a-zA-Z0-9_-]{1,64}$/;
 function configuredCloudinary() {
   const env = getEnv();
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
-    throw httpError(503, "Cloudinary is not configured on this environment");
+  const missing = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"].filter((key) => !env[key]?.trim());
+  if (missing.length > 0) {
+    throw httpError(503, `Cloudinary is not configured on this environment (empty or missing: ${missing.join(", ")})`);
   }
   cloudinary.config({
     cloud_name: env.CLOUDINARY_CLOUD_NAME,
@@ -6645,8 +6646,9 @@ var MAX_UPLOAD_BYTES2 = 10 * 1024 * 1024;
 var SAFE_FOLDER_SUFFIX = /^[a-zA-Z0-9_-]{1,64}$/;
 async function uploadBuffer(input) {
   const env = getEnv();
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
-    throw httpError(400, "Cloudinary is not configured");
+  const missing = ["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"].filter((key) => !env[key]?.trim());
+  if (missing.length > 0) {
+    throw httpError(400, `Cloudinary is not configured (empty or missing: ${missing.join(", ")})`);
   }
   if (input.buffer.byteLength > MAX_UPLOAD_BYTES2) throw httpError(400, "File is larger than 10 MB");
   if (!SAFE_FOLDER_SUFFIX.test(input.folderSuffix)) throw httpError(400, "Invalid upload folder");

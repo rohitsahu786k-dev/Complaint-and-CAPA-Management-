@@ -12,8 +12,10 @@ const SAFE_FOLDER = /^[a-zA-Z0-9_-]{1,64}$/;
 
 function configuredCloudinary() {
   const env = getEnv();
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
-    throw httpError(503, "Cloudinary is not configured on this environment");
+  const missing = (["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"] as const).filter((key) => !env[key]?.trim());
+  if (missing.length > 0) {
+    // Names only: the values are secrets and never leave the server.
+    throw httpError(503, `Cloudinary is not configured on this environment (empty or missing: ${missing.join(", ")})`);
   }
   cloudinary.config({
     cloud_name: env.CLOUDINARY_CLOUD_NAME,

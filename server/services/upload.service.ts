@@ -7,8 +7,9 @@ const SAFE_FOLDER_SUFFIX = /^[a-zA-Z0-9_-]{1,64}$/;
 
 export async function uploadBuffer(input: { buffer: Buffer; mimeType: string; folderSuffix: string }) {
   const env = getEnv();
-  if (!env.CLOUDINARY_CLOUD_NAME || !env.CLOUDINARY_API_KEY || !env.CLOUDINARY_API_SECRET) {
-    throw httpError(400, "Cloudinary is not configured");
+  const missing = (["CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET"] as const).filter((key) => !env[key]?.trim());
+  if (missing.length > 0) {
+    throw httpError(400, `Cloudinary is not configured (empty or missing: ${missing.join(", ")})`);
   }
   if (input.buffer.byteLength > MAX_UPLOAD_BYTES) throw httpError(400, "File is larger than 10 MB");
   if (!SAFE_FOLDER_SUFFIX.test(input.folderSuffix)) throw httpError(400, "Invalid upload folder");
