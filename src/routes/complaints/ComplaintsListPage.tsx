@@ -24,6 +24,7 @@ import {
 
 const FILTER_KEYS = ["type", "status", "priority", "category", "responsibleDept", "company", "isRepeat", "search", "receivedFrom", "receivedTo"] as const;
 
+/** Internal complaints are tinted amber and external ones sky blue in the register. */
 const isInternal = (type?: string) => type?.toLowerCase() === "internal";
 
 export function ComplaintsListPage() {
