@@ -548,6 +548,9 @@ var ALLOWED_UPLOAD_MIME_TYPES = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "text/csv",
   "text/plain",
+  // Customer emails saved from Outlook (.msg) or any mail client (.eml)
+  "application/vnd.ms-outlook",
+  "message/rfc822",
   "video/mp4",
   "video/quicktime"
 ];

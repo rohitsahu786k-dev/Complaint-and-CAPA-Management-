@@ -1,4 +1,5 @@
 import { useCallback, useState, type ReactNode } from "react";
+import { ALLOWED_UPLOAD_MIME_TYPES, type AttachmentPurpose } from "@shared/constants/domain";
 import { Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field, Select, Textarea } from "@/components/ui/Field";
@@ -236,7 +237,7 @@ export function FishbonePanels({
   );
 }
 
-export type UploadTarget = { entityType: "Complaint" | "Capa" | "Company"; entityId: string; purpose: string; company?: string };
+export type UploadTarget = { entityType: "Complaint" | "Capa" | "Company"; entityId: string; purpose: AttachmentPurpose; company?: string };
 
 type SignatureResponse = { timestamp: number; folder: string; signature: string; apiKey: string; cloudName: string; maxBytes: number };
 
@@ -252,6 +253,10 @@ export function useCloudinaryUpload(target: UploadTarget) {
     async (file: File) => {
       setUploading(true);
       try {
+        const mimeType = file.type || "application/octet-stream";
+        if (!(ALLOWED_UPLOAD_MIME_TYPES as readonly string[]).includes(mimeType)) {
+          throw new Error(`${file.name}: this file type (${mimeType}) is not supported. Use an image, PDF, Office file, CSV, text, email (.eml/.msg) or MP4/MOV video.`);
+        }
         const signature = await api<SignatureResponse>("/api/attachments/signature", {
           method: "POST",
           body: JSON.stringify({ purpose: target.purpose })
@@ -277,7 +282,7 @@ export function useCloudinaryUpload(target: UploadTarget) {
           body: JSON.stringify({
             publicId: uploaded.public_id,
             originalFilename: file.name,
-            mimeType: file.type || "application/octet-stream",
+            mimeType,
             entityType: target.entityType,
             entityId: target.entityId,
             purpose: target.purpose,

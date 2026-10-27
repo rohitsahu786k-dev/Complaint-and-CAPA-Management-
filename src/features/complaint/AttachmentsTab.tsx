@@ -32,7 +32,7 @@ export function AttachmentsTab({
   const { upload, uploading } = useCloudinaryUpload({
     entityType: "Complaint",
     entityId: complaint._id,
-    purpose: "Complaint Attachment",
+    purpose: "complaint.attachment",
     company: complaint.company
   });
 
@@ -50,8 +50,7 @@ export function AttachmentsTab({
         await upload(file);
         successCount++;
       } catch (error) {
-        const message = error instanceof Error ? error.message : `Failed to upload ${file.name}`;
-        toast.error(message);
+        toast.failure(error, `Failed to upload ${file.name}`);
       }
     }
     if (successCount > 0) {
