@@ -254,7 +254,11 @@ export function EffectivenessTab({
 
       <SectionCard
         title="Overall Complaint Effectiveness Review"
-        description="Final holistic confirmation that the root causes have been eliminated and no repeat failure has occurred."
+        description={`Final holistic confirmation that the root causes have been eliminated and no repeat failure has occurred.${
+          complaint.effectivenessReviewDue && !complaint.overallEffectiveness?.result
+            ? ` Review due ${formatDate(complaint.effectivenessReviewDue)} (6 months after the last CAPA); reminders are emailed automatically.`
+            : ""
+        }`}
       >
         <div className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">

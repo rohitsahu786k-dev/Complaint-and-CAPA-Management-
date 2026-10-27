@@ -470,6 +470,27 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
     supportedVariables: ["recipientName", "capaNumber", "capaTitle", "targetDate", "assignedTo", "actionUrl", "companyName"]
   },
   {
+    templateKey: "effectiveness-review-due",
+    templateName: "Effectiveness Review Due",
+    triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
+    subject: "{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})",
+    htmlBody: wrapEmailLayout(
+      `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}` +
+        `<p style="margin:0 0 12px;">The 6-month effectiveness review for <strong>Complaint {{complaintNumber}}</strong> is {{timingText}}. Please confirm that the root causes are eliminated and no repeat failure has occurred, then record the overall effectiveness result.</p>` +
+        infoTable(
+          infoRow("Complaint No.", "{{complaintNumber}}") +
+            infoRow("Customer / Issue", "{{customerName}}") +
+            infoRow("Review Due", "{{dueDate}}") +
+            infoRow("Owner", "{{ownerName}}")
+        ) +
+        emailButton("{{actionUrl}}", "Open Effectiveness Review") +
+        closing()
+    ),
+    textBody:
+      "Hello {{recipientName}},\n\nThe 6-month effectiveness review for complaint {{complaintNumber}} is {{timingText}}.\n\nCustomer / Issue: {{customerName}}\nReview due: {{dueDate}}\nOwner: {{ownerName}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
+    supportedVariables: ["recipientName", "complaintNumber", "customerName", "dueDate", "ownerName", "statusLabel", "timingText", "actionUrl", "companyName"]
+  },
+  {
     templateKey: "capa-overdue",
     templateName: "CAPA Action Overdue",
     triggerEvent: "CAPA_OVERDUE",

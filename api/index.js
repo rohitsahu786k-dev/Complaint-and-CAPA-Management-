@@ -585,6 +585,7 @@ var EMAIL_TRIGGER_EVENTS = [
   "CAPA_EVIDENCE_REJECTED",
   "CAPA_EFFECTIVENESS_VERIFIED",
   "CAPA_NOT_EFFECTIVE",
+  "EFFECTIVENESS_REVIEW_DUE",
   // Signature
   "COMPLAINT_PREPARED",
   "COMPLAINT_REVIEWED",
@@ -594,6 +595,7 @@ var EMAIL_TRIGGER_EVENTS = [
   "DAILY_SUMMARY",
   "WEEKLY_SUMMARY"
 ];
+var EFFECTIVENESS_REVIEW_MONTHS = 6;
 
 // server/domain/rbac.ts
 function hasPermission(actor, permission) {
@@ -1211,6 +1213,33 @@ function openCapaWarnings(capas) {
 }
 function shouldAutoReopenOnLongTerm(complaint) {
   return complaint.d7LongTermResult === "Not Sustained" && complaint.status === "Closed";
+}
+
+// server/domain/effectiveness-review.ts
+var DAY_MS2 = 24 * 60 * 60 * 1e3;
+var EFFECTIVENESS_REMINDER_MILESTONES = [30, 14, 7, 3, 1, 0];
+function addMonthsClamped(date2, months) {
+  const result = new Date(date2.getTime());
+  const day = result.getUTCDate();
+  result.setUTCDate(1);
+  result.setUTCMonth(result.getUTCMonth() + months);
+  const monthEnd = new Date(Date.UTC(result.getUTCFullYear(), result.getUTCMonth() + 1, 0)).getUTCDate();
+  result.setUTCDate(Math.min(day, monthEnd));
+  return result;
+}
+function effectivenessReviewDue(input) {
+  const completed = input.capaCompletedAts.filter((value) => Boolean(value)).map((value) => new Date(value).getTime()).filter((time) => !Number.isNaN(time));
+  const base = completed.length > 0 ? new Date(Math.max(...completed)) : input.closedAt ? new Date(input.closedAt) : null;
+  if (!base || Number.isNaN(base.getTime())) return null;
+  return addMonthsClamped(base, EFFECTIVENESS_REVIEW_MONTHS);
+}
+function daysUntil(due, now) {
+  return Math.ceil((due.getTime() - now.getTime()) / DAY_MS2) + 0;
+}
+function effectivenessReminderBucket(daysLeft) {
+  if (daysLeft < 0) return { key: `overdue-${Math.floor((-daysLeft - 1) / 7)}`, overdue: true };
+  const milestone = [...EFFECTIVENESS_REMINDER_MILESTONES].reverse().find((value) => daysLeft <= value);
+  return milestone === void 0 ? null : { key: `due-${milestone}`, overdue: false };
 }
 
 // server/domain/repeat.ts
@@ -2486,6 +2515,19 @@ var DEFAULT_EMAIL_TEMPLATES = [
     supportedVariables: ["recipientName", "capaNumber", "capaTitle", "targetDate", "assignedTo", "actionUrl", "companyName"]
   },
   {
+    templateKey: "effectiveness-review-due",
+    templateName: "Effectiveness Review Due",
+    triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
+    subject: "{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})",
+    htmlBody: wrapEmailLayout(
+      `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}<p style="margin:0 0 12px;">The 6-month effectiveness review for <strong>Complaint {{complaintNumber}}</strong> is {{timingText}}. Please confirm that the root causes are eliminated and no repeat failure has occurred, then record the overall effectiveness result.</p>` + infoTable(
+        infoRow("Complaint No.", "{{complaintNumber}}") + infoRow("Customer / Issue", "{{customerName}}") + infoRow("Review Due", "{{dueDate}}") + infoRow("Owner", "{{ownerName}}")
+      ) + emailButton("{{actionUrl}}", "Open Effectiveness Review") + closing()
+    ),
+    textBody: "Hello {{recipientName}},\n\nThe 6-month effectiveness review for complaint {{complaintNumber}} is {{timingText}}.\n\nCustomer / Issue: {{customerName}}\nReview due: {{dueDate}}\nOwner: {{ownerName}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
+    supportedVariables: ["recipientName", "complaintNumber", "customerName", "dueDate", "ownerName", "statusLabel", "timingText", "actionUrl", "companyName"]
+  },
+  {
     templateKey: "capa-overdue",
     templateName: "CAPA Action Overdue",
     triggerEvent: "CAPA_OVERDUE",
@@ -3479,7 +3521,15 @@ async function getComplaintDetail(complaintId, user) {
     context.doc.ownerEmployee ? Employee.findById(context.doc.ownerEmployee).select("name").lean() : null
   ]);
   return {
-    complaint: { ...context.doc.toObject(), ownerName: ownerUser?.name, ownerEmployeeName: ownerEmployee?.name },
+    complaint: {
+      ...context.doc.toObject(),
+      ownerName: ownerUser?.name,
+      ownerEmployeeName: ownerEmployee?.name,
+      effectivenessReviewDue: effectivenessReviewDue({
+        capaCompletedAts: capas.map((capa) => capa.completedAt),
+        closedAt: context.doc.closedAt
+      })
+    },
     capas,
     tat: buildTatPlan(context.domain, tatConfig),
     tatConfig,
@@ -8287,6 +8337,50 @@ function requireCronAuth(req, _res, next) {
 }
 
 // server/services/reminder.service.ts
+async function processEffectivenessReviewReminders(now) {
+  let sent = 0;
+  const pending = await Complaint.find({
+    $or: [{ "overallEffectiveness.result": "" }, { "overallEffectiveness.result": null }, { "overallEffectiveness.result": { $exists: false } }]
+  }).select("number customer product description closedAt owner ownerEmployee").populate("owner", "name").populate("ownerEmployee", "name email").lean();
+  if (pending.length === 0) return 0;
+  const capas = await Capa.find({ complaint: { $in: pending.map((entry) => entry._id) }, completedAt: { $ne: null } }).select("complaint completedAt").lean();
+  const completedByComplaint = /* @__PURE__ */ new Map();
+  for (const capa of capas) {
+    const key = String(capa.complaint);
+    completedByComplaint.set(key, [...completedByComplaint.get(key) ?? [], capa.completedAt]);
+  }
+  for (const complaint of pending) {
+    const due = effectivenessReviewDue({ capaCompletedAts: completedByComplaint.get(String(complaint._id)) ?? [], closedAt: complaint.closedAt });
+    if (!due) continue;
+    const daysLeft = daysUntil(due, now);
+    const bucket = effectivenessReminderBucket(daysLeft);
+    if (!bucket) continue;
+    const employee = complaint.ownerEmployee;
+    const recipients = await resolveRecipients({
+      complaintId: complaint._id,
+      targetRoles: ["Complaint Owner", "Quality Head", "Master Admin"],
+      explicitEmails: employee?.email ? [employee.email] : void 0
+    });
+    if (recipients.length === 0) continue;
+    const res = await sendTemplatedEmail({
+      triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
+      recipients,
+      dedupeKey: `EFFREV_${complaint._id}_${bucket.key}`,
+      relatedComplaintId: complaint._id,
+      data: {
+        complaintNumber: complaint.number,
+        customerName: complaint.customer || complaint.product || complaint.description?.slice(0, 80) || "Internal Issue",
+        dueDate: due.toLocaleDateString("en-IN"),
+        ownerName: employee?.name || complaint.owner?.name || "Assigned Owner",
+        statusLabel: bucket.overdue ? "OVERDUE" : daysLeft === 0 ? "Due Today" : "Upcoming",
+        timingText: bucket.overdue ? `overdue by ${-daysLeft} day(s)` : daysLeft === 0 ? "due today" : `due in ${daysLeft} day(s), on ${due.toLocaleDateString("en-IN")}`,
+        actionUrl: `/complaints/${complaint._id}`
+      }
+    });
+    if (res.status === "sent") sent++;
+  }
+  return sent;
+}
 function getActiveStage2(c) {
   if (!c.acknowledgedAt) return "ack";
   if (!c.containmentAt) return "cont";
@@ -8417,11 +8511,13 @@ async function processReminders() {
       }
     }
   }
+  const effectivenessRemindersSent = await processEffectivenessReviewReminders(now);
   return {
     complaintsChecked: openComplaints.length,
     complaintRemindersSent,
     capasChecked: openCapas.length,
-    capaRemindersSent
+    capaRemindersSent,
+    effectivenessRemindersSent
   };
 }
 

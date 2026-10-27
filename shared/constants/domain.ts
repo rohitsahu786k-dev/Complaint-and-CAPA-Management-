@@ -283,6 +283,7 @@ export const EMAIL_TRIGGER_EVENTS = [
   "CAPA_EVIDENCE_REJECTED",
   "CAPA_EFFECTIVENESS_VERIFIED",
   "CAPA_NOT_EFFECTIVE",
+  "EFFECTIVENESS_REVIEW_DUE",
   // Signature
   "COMPLAINT_PREPARED",
   "COMPLAINT_REVIEWED",
@@ -293,7 +294,10 @@ export const EMAIL_TRIGGER_EVENTS = [
   "WEEKLY_SUMMARY"
 ] as const;
 
-export type EmailTriggerEvent = (typeof EMAIL_TRIGGER_EVENTS)[number];
+/** The overall effectiveness review of a complaint falls due this many months after its CAPAs are done. */
+export const EFFECTIVENESS_REVIEW_MONTHS = 6;
+
+export type EmailTriggerEvent =(typeof EMAIL_TRIGGER_EVENTS)[number];
 
 export const EMAIL_TRIGGER_LABELS: Record<EmailTriggerEvent, string> = {
   USER_CREATED: "User Created",
@@ -324,6 +328,7 @@ export const EMAIL_TRIGGER_LABELS: Record<EmailTriggerEvent, string> = {
   CAPA_EVIDENCE_REJECTED: "CAPA Evidence Rejected",
   CAPA_EFFECTIVENESS_VERIFIED: "CAPA Effectiveness Verified",
   CAPA_NOT_EFFECTIVE: "CAPA Not Effective / Reopened",
+  EFFECTIVENESS_REVIEW_DUE: "Effectiveness Review Due",
   COMPLAINT_PREPARED: "8D Report Prepared",
   COMPLAINT_REVIEWED: "8D Report Reviewed",
   COMPLAINT_APPROVED: "8D Report Approved",

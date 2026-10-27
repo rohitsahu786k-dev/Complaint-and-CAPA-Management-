@@ -4,6 +4,7 @@ import { Capa } from "../models/Capa";
 import { EscalationConfiguration, TATConfiguration } from "../models/configuration";
 import { DEFAULT_REMINDER_PERCENTAGES, DEFAULT_TAT_CONFIG, type WorkflowStage } from "@shared/constants/domain";
 import { computeStageDueDates } from "../domain/tat";
+import { daysUntil, effectivenessReminderBucket, effectivenessReviewDue } from "../domain/effectiveness-review";
 import { resolveRecipients } from "./email-recipient.service";
 import { sendTemplatedEmail } from "./email.service";
 
@@ -12,7 +13,71 @@ export type ReminderRunResult = {
   complaintRemindersSent: number;
   capasChecked: number;
   capaRemindersSent: number;
+  effectivenessRemindersSent: number;
 };
+
+/**
+ * Reminds the complaint owner, Quality Heads and Master Admins when a complaint's 6-month
+ * effectiveness review is approaching or overdue and no overall result has been recorded.
+ */
+async function processEffectivenessReviewReminders(now: Date): Promise<number> {
+  let sent = 0;
+  const pending = await Complaint.find({
+    $or: [{ "overallEffectiveness.result": "" }, { "overallEffectiveness.result": null }, { "overallEffectiveness.result": { $exists: false } }]
+  })
+    .select("number customer product description closedAt owner ownerEmployee")
+    .populate("owner", "name")
+    .populate("ownerEmployee", "name email")
+    .lean();
+  if (pending.length === 0) return 0;
+
+  const capas = await Capa.find({ complaint: { $in: pending.map((entry) => entry._id) }, completedAt: { $ne: null } })
+    .select("complaint completedAt")
+    .lean();
+  const completedByComplaint = new Map<string, Date[]>();
+  for (const capa of capas) {
+    const key = String(capa.complaint);
+    completedByComplaint.set(key, [...(completedByComplaint.get(key) ?? []), capa.completedAt as Date]);
+  }
+
+  for (const complaint of pending) {
+    const due = effectivenessReviewDue({ capaCompletedAts: completedByComplaint.get(String(complaint._id)) ?? [], closedAt: complaint.closedAt });
+    if (!due) continue;
+    const daysLeft = daysUntil(due, now);
+    const bucket = effectivenessReminderBucket(daysLeft);
+    if (!bucket) continue;
+
+    const employee = complaint.ownerEmployee as { name?: string; email?: string } | null;
+    const recipients = await resolveRecipients({
+      complaintId: complaint._id,
+      targetRoles: ["Complaint Owner", "Quality Head", "Master Admin"],
+      explicitEmails: employee?.email ? [employee.email] : undefined
+    });
+    if (recipients.length === 0) continue;
+
+    const res = await sendTemplatedEmail({
+      triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
+      recipients,
+      dedupeKey: `EFFREV_${complaint._id}_${bucket.key}`,
+      relatedComplaintId: complaint._id,
+      data: {
+        complaintNumber: complaint.number,
+        customerName: complaint.customer || complaint.product || complaint.description?.slice(0, 80) || "Internal Issue",
+        dueDate: due.toLocaleDateString("en-IN"),
+        ownerName: employee?.name || (complaint.owner as { name?: string } | null)?.name || "Assigned Owner",
+        statusLabel: bucket.overdue ? "OVERDUE" : daysLeft === 0 ? "Due Today" : "Upcoming",
+        timingText: bucket.overdue
+          ? `overdue by ${-daysLeft} day(s)`
+          : daysLeft === 0
+            ? "due today"
+            : `due in ${daysLeft} day(s), on ${due.toLocaleDateString("en-IN")}`,
+        actionUrl: `/complaints/${complaint._id}`
+      }
+    });
+    if (res.status === "sent") sent++;
+  }
+  return sent;
+}
 
 function getActiveStage(c: {
   acknowledgedAt?: Date | null;
@@ -183,10 +248,13 @@ export async function processReminders(): Promise<ReminderRunResult> {
     }
   }
 
+  const effectivenessRemindersSent = await processEffectivenessReviewReminders(now);
+
   return {
     complaintsChecked: openComplaints.length,
     complaintRemindersSent,
     capasChecked: openCapas.length,
-    capaRemindersSent
+    capaRemindersSent,
+    effectivenessRemindersSent
   };
 }

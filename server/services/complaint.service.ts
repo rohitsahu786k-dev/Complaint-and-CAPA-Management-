@@ -4,6 +4,7 @@ import { WORKFLOW_STAGE_STATUS, type SignatureRole, type WorkflowStage } from "@
 import type { ComplaintCreateInput, ComplaintListQuery, StageCompleteInput } from "@shared/schemas/complaint";
 import { openCapaWarnings, shouldAutoReopenOnLongTerm, validateForClosure } from "../domain/closure";
 import { canCloseComplaint, canEditComplaint, canSeeCompany, canViewComplaint, hasPermission, isMasterAdmin } from "../domain/rbac";
+import { effectivenessReviewDue } from "../domain/effectiveness-review";
 import { describeRepeatBasis, findRepeatMatches, repeatCutoff } from "../domain/repeat";
 import { buildSignatureRecord, rolesInvalidatedBy, validateRevocation, validateSignature } from "../domain/signature";
 import { buildTatPlan, isStageOverdueNow } from "../domain/tat";
@@ -320,7 +321,15 @@ export async function getComplaintDetail(complaintId: string, user: ApiUser | un
     context.doc.ownerEmployee ? Employee.findById(context.doc.ownerEmployee).select("name").lean() : null
   ]);
   return {
-    complaint: { ...context.doc.toObject(), ownerName: ownerUser?.name, ownerEmployeeName: ownerEmployee?.name },
+    complaint: {
+      ...context.doc.toObject(),
+      ownerName: ownerUser?.name,
+      ownerEmployeeName: ownerEmployee?.name,
+      effectivenessReviewDue: effectivenessReviewDue({
+        capaCompletedAts: capas.map((capa) => capa.completedAt),
+        closedAt: context.doc.closedAt
+      })
+    },
     capas,
     tat: buildTatPlan(context.domain, tatConfig),
     tatConfig,
