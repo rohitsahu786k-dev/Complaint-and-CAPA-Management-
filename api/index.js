@@ -1347,7 +1347,9 @@ function stageGaps(complaint, capas, stage) {
   const gaps = [];
   const external = complaint.type === "External";
   if (stage === "ack") {
-    if (!complaint.d0 || !complaint.d0.trim()) gaps.push({ section: "D0", field: "Emergency response text", hint: "8D tab" });
+    if (!complaint.d0 || !complaint.d0.trim()) {
+      gaps.push({ section: "D0", field: "Emergency response text", hint: external ? "8D tab" : "Internal investigation tab" });
+    }
     if (external && (complaint.d1Team ?? []).length === 0) {
       gaps.push({ section: "D1", field: "At least one cross-functional team member", hint: "8D tab" });
     }
@@ -6072,6 +6074,9 @@ var eightDSchema = z10.object({
   d8ClosedDate: z10.string().trim().max(40).optional()
 });
 var internalInvestigationSchema = z10.object({
+  /** Immediate response and interim containment: required to acknowledge and to complete containment. */
+  d0: z10.string().trim().max(4e3).optional(),
+  d3Actions: z10.array(actionRowSchema).max(50).optional(),
   d2: z10.object({ what: z10.string().trim().max(2e3).optional() }).optional(),
   fiveWhy: z10.object({ singleChain: z10.array(z10.string().trim().max(1e3)).max(10).optional() }).optional(),
   d4Occurrence: z10.string().trim().max(4e3).optional(),

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { WORKFLOW_STAGES, WORKFLOW_STAGE_LABELS, type WorkflowStage } from "@shared/constants/domain";
 import { CheckCircle, Clock, AlertTriangle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/Cards";
@@ -19,8 +20,8 @@ import {
 } from "@/services/queries";
 import { BlockedReasons } from "./shared";
 
-const STAGES = ["Acknowledgement", "Containment", "RCA", "CAPA Assignment"] as const;
-type WorkflowStage = (typeof STAGES)[number];
+// The server, the TAT plan and the stage endpoint all use the stage codes (ack, cont, rca, capa).
+const STAGES = WORKFLOW_STAGES;
 
 export function WorkflowPanel({
   complaint,
@@ -96,7 +97,7 @@ export function WorkflowPanel({
       await stageMutation.mutateAsync({
         stage: activeStage,
         notes: notes.trim() || undefined,
-        containmentNotes: activeStage === "Containment" ? containmentNotes.trim() || undefined : undefined,
+        containmentNotes: activeStage === "cont" ? containmentNotes.trim() || undefined : undefined,
         delay: isOverdue
           ? {
               category: delayCategory,
@@ -106,7 +107,7 @@ export function WorkflowPanel({
           : undefined
       });
 
-      toast.success(`${activeStage} marked as completed`);
+      toast.success(`${WORKFLOW_STAGE_LABELS[activeStage]} marked as completed`);
       setActiveStage(null);
     } catch (error) {
       const fieldIssues = issuesFrom(error);
@@ -154,7 +155,7 @@ export function WorkflowPanel({
                 </div>
 
                 <div>
-                  <h4 className="font-bold text-slate-800 text-sm">{stageName}</h4>
+                  <h4 className="font-bold text-slate-800 text-sm">{WORKFLOW_STAGE_LABELS[stageName]}</h4>
                   <div className="mt-2 space-y-1 text-xs text-slate-600">
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Target SLA:</span>
@@ -208,7 +209,7 @@ export function WorkflowPanel({
       <Modal
         open={Boolean(activeStage)}
         onOpenChange={(open) => !open && setActiveStage(null)}
-        title={`Complete Workflow Stage: ${activeStage ?? ""}`}
+        title={`Complete Workflow Stage: ${activeStage ? WORKFLOW_STAGE_LABELS[activeStage] : ""}`}
       >
         <div className="space-y-4 text-sm">
           {activeStage && getStageData(activeStage)?.overdue && (
@@ -271,7 +272,7 @@ export function WorkflowPanel({
             </div>
           )}
 
-          {activeStage === "Containment" && (
+          {activeStage === "cont" && (
             <Field label="Interim Containment Notes / Summary">
               <Textarea
                 rows={2}

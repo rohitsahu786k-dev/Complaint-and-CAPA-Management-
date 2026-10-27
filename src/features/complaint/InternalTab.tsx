@@ -6,11 +6,13 @@ import { Field, Select, Textarea } from "@/components/ui/Field";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
 import { ApiError } from "@/lib/api";
-import { useApiMutation, useConfiguration, type ComplaintDetail } from "@/services/queries";
-import { BlockedReasons, TabPanel, WhyChainEditor } from "./shared";
+import { useApiMutation, useConfiguration, type ActionRow, type ComplaintDetail } from "@/services/queries";
+import { ActionRowsEditor, BlockedReasons, TabPanel, WhyChainEditor } from "./shared";
 import { SignatureBlock } from "./SignatureBlock";
 
 type Draft = {
+  d0: string;
+  d3Actions: ActionRow[];
   problem: string;
   singleChain: string[];
   rootCause: string;
@@ -23,6 +25,8 @@ type Draft = {
 
 function toDraft(complaint: ComplaintDetail): Draft {
   return {
+    d0: complaint.d0 ?? "",
+    d3Actions: complaint.d3Actions ?? [],
     problem: complaint.d2?.what ?? "",
     singleChain: complaint.fiveWhy?.singleChain ?? [],
     rootCause: complaint.d4Occurrence ?? "",
@@ -56,6 +60,8 @@ export function InternalTab({ complaint, canEdit }: { complaint: ComplaintDetail
     setIssues([]);
     try {
       await save.mutateAsync({
+        d0: draft.d0,
+        d3Actions: draft.d3Actions,
         d2: { what: draft.problem },
         fiveWhy: { singleChain: draft.singleChain },
         d4Occurrence: draft.rootCause,
@@ -83,6 +89,24 @@ export function InternalTab({ complaint, canEdit }: { complaint: ComplaintDetail
       ) : null}
 
       <BlockedReasons title="The server rejected this save" issues={issues} />
+
+      <SectionCard
+        title="Immediate response and containment"
+        description="The response text is required to acknowledge the complaint; at least one complete containment action (what, who, target date) is required to complete containment."
+      >
+        <div className="space-y-4">
+          <Field label="Immediate response taken" required hint="Required before the Acknowledgement stage can be completed.">
+            <Textarea rows={3} value={draft.d0} disabled={readOnly} onChange={(event) => setDraft({ ...draft, d0: event.target.value })} />
+          </Field>
+          <Field label="Interim containment actions" required hint="Required before the Containment stage can be completed.">
+            <ActionRowsEditor rows={draft.d3Actions} onChange={(rows) => setDraft({ ...draft, d3Actions: rows })} readOnly={readOnly} />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge tone={draft.d0.trim() ? "green" : "amber"}>Immediate response {draft.d0.trim() ? "recorded" : "missing"}</StatusBadge>
+            <StatusBadge tone={draft.d3Actions.length > 0 ? "green" : "amber"}>Containment actions {draft.d3Actions.length}</StatusBadge>
+          </div>
+        </div>
+      </SectionCard>
 
       <SectionCard
         title="Internal investigation"

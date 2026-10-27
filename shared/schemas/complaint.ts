@@ -197,6 +197,9 @@ export const eightDSchema = z.object({
 
 /** Internal complaints keep a reduced investigation instead of the full 8D interface. */
 export const internalInvestigationSchema = z.object({
+  /** Immediate response and interim containment: required to acknowledge and to complete containment. */
+  d0: z.string().trim().max(4000).optional(),
+  d3Actions: z.array(actionRowSchema).max(50).optional(),
   d2: z.object({ what: z.string().trim().max(2000).optional() }).optional(),
   fiveWhy: z.object({ singleChain: z.array(z.string().trim().max(1000)).max(10).optional() }).optional(),
   d4Occurrence: z.string().trim().max(4000).optional(),

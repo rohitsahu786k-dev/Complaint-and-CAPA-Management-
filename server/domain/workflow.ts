@@ -21,7 +21,9 @@ export function stageGaps(complaint: DomainComplaint, capas: DomainCapa[], stage
   const external = complaint.type === "External";
 
   if (stage === "ack") {
-    if (!complaint.d0 || !complaint.d0.trim()) gaps.push({ section: "D0", field: "Emergency response text", hint: "8D tab" });
+    if (!complaint.d0 || !complaint.d0.trim()) {
+      gaps.push({ section: "D0", field: "Emergency response text", hint: external ? "8D tab" : "Internal investigation tab" });
+    }
     if (external && (complaint.d1Team ?? []).length === 0) {
       gaps.push({ section: "D1", field: "At least one cross-functional team member", hint: "8D tab" });
     }
