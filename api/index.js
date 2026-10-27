@@ -4201,7 +4201,7 @@ async function assignableUsers(user, companyId) {
   const filter = { active: true };
   const companyFilter = scope.filter.company;
   if (companyFilter) filter.companyIds = companyFilter;
-  const users = await User.find(filter).select("name username email department").populate("role", "name").sort({ name: 1 }).limit(500).lean();
+  const users = await User.find(filter).select("name username email department employee").populate("role", "name").sort({ name: 1 }).limit(500).lean();
   return users.map((entry) => ({
     id: String(entry._id),
     name: entry.name,
@@ -4209,6 +4209,20 @@ async function assignableUsers(user, companyId) {
     email: entry.email ?? "",
     role: entry.role?.name ?? ""
   }));
+}
+async function employeesWithoutLogin(user, companyId) {
+  const scope = await resolveScope(user, companyId);
+  const filter = { active: true };
+  if (scope.filter.company) filter.company = scope.filter.company;
+  const userFilter = { active: true };
+  if (scope.filter.company) userFilter.companyIds = scope.filter.company;
+  const [employees, users] = await Promise.all([
+    Employee.find(filter).select("name email designation linkedUser").sort({ name: 1 }).limit(1e3).lean(),
+    User.find(userFilter).select("email employee").lean()
+  ]);
+  const linkedEmployees = new Set(users.map((entry) => String(entry.employee ?? "")).filter(Boolean));
+  const userEmails = new Set(users.map((entry) => (entry.email ?? "").toLowerCase()).filter(Boolean));
+  return employees.filter((entry) => !entry.linkedUser && !linkedEmployees.has(String(entry._id)) && !(entry.email && userEmails.has(entry.email.toLowerCase()))).map((entry) => ({ id: String(entry._id), name: entry.name, designation: entry.designation ?? "" }));
 }
 
 // server/services/report.service.ts
@@ -4737,7 +4751,11 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, { users: await assignableUsers(req.user, query.company) });
+    const [users, employees] = await Promise.all([
+      assignableUsers(req.user, query.company),
+      employeesWithoutLogin(req.user, query.company)
+    ]);
+    return ok(res, { users, employees });
   })
 );
 var reportRouter = Router();

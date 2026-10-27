@@ -8,6 +8,7 @@ import { Capa } from "../models/Capa";
 import { Complaint } from "../models/Complaint";
 import { Priority } from "../models/masters";
 import { User } from "../models/User";
+import { Employee } from "../models/Employee";
 import { resolveTatConfig } from "./config.service";
 import { requireActor } from "./complaint.service";
 import { httpError } from "../utils/http";
@@ -502,7 +503,7 @@ export async function assignableUsers(user: ApiUser | undefined, companyId?: str
   const filter: Record<string, unknown> = { active: true };
   const companyFilter = scope.filter.company;
   if (companyFilter) filter.companyIds = companyFilter;
-  const users = await User.find(filter).select("name username email department").populate("role", "name").sort({ name: 1 }).limit(500).lean();
+  const users = await User.find(filter).select("name username email department employee").populate("role", "name").sort({ name: 1 }).limit(500).lean();
   return users.map((entry) => ({
     id: String(entry._id),
     name: entry.name,
@@ -510,4 +511,25 @@ export async function assignableUsers(user: ApiUser | undefined, companyId?: str
     email: entry.email ?? "",
     role: (entry.role as unknown as { name?: string } | null)?.name ?? ""
   }));
+}
+
+/**
+ * Active Master Data employees who have no portal login yet. A complaint owner must be a
+ * portal user, so these are shown to the picker but cannot be selected.
+ */
+export async function employeesWithoutLogin(user: ApiUser | undefined, companyId?: string) {
+  const scope = await resolveScope(user, companyId);
+  const filter: Record<string, unknown> = { active: true };
+  if (scope.filter.company) filter.company = scope.filter.company;
+  const userFilter: Record<string, unknown> = { active: true };
+  if (scope.filter.company) userFilter.companyIds = scope.filter.company;
+  const [employees, users] = await Promise.all([
+    Employee.find(filter).select("name email designation linkedUser").sort({ name: 1 }).limit(1000).lean(),
+    User.find(userFilter).select("email employee").lean()
+  ]);
+  const linkedEmployees = new Set(users.map((entry) => String(entry.employee ?? "")).filter(Boolean));
+  const userEmails = new Set(users.map((entry) => (entry.email ?? "").toLowerCase()).filter(Boolean));
+  return employees
+    .filter((entry) => !entry.linkedUser && !linkedEmployees.has(String(entry._id)) && !(entry.email && userEmails.has(entry.email.toLowerCase())))
+    .map((entry) => ({ id: String(entry._id), name: entry.name, designation: entry.designation ?? "" }));
 }

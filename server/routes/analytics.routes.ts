@@ -3,7 +3,7 @@ import { z } from "zod";
 import { objectIdSchema } from "@shared/schemas/common";
 import { connectDB } from "../config/db";
 import { requireUser } from "../middleware/auth";
-import { assignableUsers, capaAnalytics, dashboardAnalytics, repeatAnalytics, tatAnalytics } from "../services/analytics.service";
+import { assignableUsers, capaAnalytics, dashboardAnalytics, employeesWithoutLogin, repeatAnalytics, tatAnalytics } from "../services/analytics.service";
 import { buildReport, eightDExcelSheets, eightDReportData, reportCatalog } from "../services/report.service";
 import { requireActor } from "../services/complaint.service";
 import { hasPermission } from "../domain/rbac";
@@ -63,7 +63,11 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, { users: await assignableUsers(req.user, query.company) });
+    const [users, employees] = await Promise.all([
+      assignableUsers(req.user, query.company),
+      employeesWithoutLogin(req.user, query.company)
+    ]);
+    return ok(res, { users, employees });
   })
 );
 

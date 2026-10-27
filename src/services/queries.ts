@@ -88,7 +88,7 @@ export function useSystemUsers(enabled = true) {
 export type AssignableUser = { id: string; name: string; username: string; email: string; role: string };
 
 export function useAssignableUsers(company?: string) {
-  return useApiQuery<{ users: AssignableUser[] }>(
+  return useApiQuery<{ users: AssignableUser[]; employees?: { id: string; name: string; designation: string }[] }>(
     ["assignable-users", company ?? "all"],
     `/api/analytics/assignable-users${buildQuery({ company })}`,
     { staleTime: 5 * 60 * 1000 }

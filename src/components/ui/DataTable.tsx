@@ -30,6 +30,10 @@ type DataTableProps<T> = {
   sort?: SortState;
   onSortChange?: (sort: SortState) => void;
   caption?: string;
+  /** Background tint for a row (and its mobile card). */
+  rowClassName?: (row: T) => string | undefined;
+  /** Left-edge accent for a row, applied to the first cell on desktop and the card on mobile. */
+  rowAccentClassName?: (row: T) => string | undefined;
 };
 
 export function DataTable<T>({
@@ -43,7 +47,9 @@ export function DataTable<T>({
   onRowClick,
   sort,
   onSortChange,
-  caption
+  caption,
+  rowClassName,
+  rowAccentClassName
 }: DataTableProps<T>) {
   if (isLoading) return <Spinner label="Loading records" />;
 
@@ -119,10 +125,21 @@ export function DataTable<T>({
                 <tr
                   key={rowKey(row)}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  className={cn("border-b border-slate-100 last:border-0", onRowClick && "cursor-pointer hover:bg-slate-50")}
+                  className={cn(
+                    "border-b border-slate-100 last:border-0",
+                    rowClassName?.(row),
+                    onRowClick && "cursor-pointer hover:brightness-95"
+                  )}
                 >
-                  {columns.map((column) => (
-                    <td key={column.key} className={cn("px-3 py-2.5 align-top text-slate-700", column.align === "right" && "text-right")}>
+                  {columns.map((column, columnIndex) => (
+                    <td
+                      key={column.key}
+                      className={cn(
+                        "px-3 py-2.5 align-top text-slate-700",
+                        column.align === "right" && "text-right",
+                        columnIndex === 0 && rowAccentClassName?.(row)
+                      )}
+                    >
                       {column.render(row)}
                     </td>
                   ))}
@@ -159,7 +176,9 @@ export function DataTable<T>({
                   : undefined
               }
               className={cn(
-                "w-full rounded-lg border border-slate-200 bg-white p-3 text-left shadow-sm",
+                "w-full rounded-lg border border-slate-200 p-3 text-left shadow-sm",
+                rowClassName?.(row) ?? "bg-white",
+                rowAccentClassName?.(row),
                 onRowClick && "cursor-pointer active:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-red"
               )}
             >

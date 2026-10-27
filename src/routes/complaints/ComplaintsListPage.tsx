@@ -24,6 +24,8 @@ import {
 
 const FILTER_KEYS = ["type", "status", "priority", "category", "responsibleDept", "company", "isRepeat", "search", "receivedFrom", "receivedTo"] as const;
 
+const isInternal = (type?: string) => type?.toLowerCase() === "internal";
+
 export function ComplaintsListPage() {
   const navigate = useNavigate();
   const toast = useToast();
@@ -97,7 +99,21 @@ export function ComplaintsListPage() {
         </span>
       )
     },
-    { key: "type", header: "Type", render: (row) => row.type },
+    {
+      key: "type",
+      header: "Type",
+      render: (row) => (
+        <span
+          className={
+            isInternal(row.type)
+              ? "rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+              : "rounded-full bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-800"
+          }
+        >
+          {row.type}
+        </span>
+      )
+    },
     { key: "customer", header: "Customer / Product", render: (row) => row.customer || row.product || "—" },
     { key: "category", header: "Category", render: (row) => row.category || "—" },
     { key: "responsibleDept", header: "Department", render: (row) => row.responsibleDept?.name ?? "—", hideOnMobile: true },
@@ -286,6 +302,10 @@ export function ComplaintsListPage() {
             isLoading={isLoading}
             error={error}
             onRowClick={(row) => navigate(`/complaints/${row._id}`)}
+            rowClassName={(row) => (isInternal(row.type) ? "bg-amber-50" : "bg-sky-50/60")}
+            rowAccentClassName={(row) =>
+              isInternal(row.type) ? "shadow-[inset_4px_0_0_0_#f59e0b]" : "shadow-[inset_4px_0_0_0_#0ea5e9]"
+            }
             sort={{ field: String(query.sort), order: query.order === "asc" ? "asc" : "desc" }}
             onSortChange={(sort) => {
               const next = new URLSearchParams(params);

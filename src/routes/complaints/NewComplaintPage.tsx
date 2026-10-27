@@ -302,6 +302,15 @@ export function NewComplaintPage() {
                           {user.name} {user.role ? `— ${user.role}` : ""}
                         </option>
                       ))}
+                      {(assignable.data?.employees ?? []).length > 0 ? (
+                        <optgroup label="Employees without a portal login (cannot be assigned)">
+                          {(assignable.data?.employees ?? []).map((employee) => (
+                            <option key={employee.id} value="" disabled>
+                              {employee.name} {employee.designation ? `— ${employee.designation}` : ""} (no portal login)
+                            </option>
+                          ))}
+                        </optgroup>
+                      ) : null}
                     </Select>
                   </Field>
                 )}
