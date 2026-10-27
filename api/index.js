@@ -2242,6 +2242,10 @@ var EmailTemplate = mongoose12.models.EmailTemplate || mongoose12.model("EmailTe
 var heading = (text2) => `<h2 style="margin:0 0 14px;font-size:18px;font-weight:700;color:#1e293b;">${text2}</h2>`;
 var greeting = () => `<p style="margin:0 0 12px;">Hello {{recipientName}},</p>`;
 var closing = () => `<p style="margin:24px 0 0;font-size:13px;color:#64748b;">Regards,<br><strong>{{companyName}}</strong> &mdash; Quality &amp; Continuous Improvement</p>`;
+var SUPERSEDED_DEFAULT_SUBJECTS = {
+  "complaint-created": ["Complaint {{complaintNumber}} Registered: {{complaintTitle}}"],
+  "effectiveness-review-due": ["{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})"]
+};
 var DEFAULT_EMAIL_TEMPLATES = [
   // ==================== AUTH ====================
   {
@@ -2284,7 +2288,7 @@ var DEFAULT_EMAIL_TEMPLATES = [
     templateKey: "complaint-created",
     templateName: "Complaint Created",
     triggerEvent: "COMPLAINT_CREATED",
-    subject: "Complaint {{complaintNumber}} Registered: {{complaintTitle}}",
+    subject: "Complaint {{complaintNumber}} Registered",
     htmlBody: wrapEmailLayout(
       `${greeting()}${heading("New Complaint Registered")}<p style="margin:0 0 12px;">A new complaint has been registered and logged in the system.</p>` + infoTable(
         infoRow("Complaint No.", "{{complaintNumber}}") + infoRow("Type", "{{complaintType}}") + infoRow("Customer / Source", "{{customerName}}") + infoRow("Part / Assembly", "{{partName}} ({{partNumber}})") + infoRow("Priority", "{{priority}}") + infoRow("Responsible Dept.", "{{departmentName}}") + infoRow("Coordinator", "{{coordinatorName}}") + infoRow("Target Ack. Date", "{{ackDueDate}}")
@@ -2520,7 +2524,7 @@ var DEFAULT_EMAIL_TEMPLATES = [
     templateKey: "effectiveness-review-due",
     templateName: "Effectiveness Review Due",
     triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
-    subject: "{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})",
+    subject: "{{statusLabel}}: Effectiveness Review {{complaintNumber}}",
     htmlBody: wrapEmailLayout(
       `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}<p style="margin:0 0 12px;">The 6-month effectiveness review for <strong>Complaint {{complaintNumber}}</strong> is {{timingText}}. Please confirm that the root causes are eliminated and no repeat failure has occurred, then record the overall effectiveness result.</p>` + infoTable(
         infoRow("Complaint No.", "{{complaintNumber}}") + infoRow("Customer / Issue", "{{customerName}}") + infoRow("Review Due", "{{dueDate}}") + infoRow("Owner", "{{ownerName}}")
@@ -2750,7 +2754,14 @@ async function getEmailTemplateById(id2) {
 async function getActiveTemplateByTrigger(triggerEvent) {
   await connectDB();
   const doc = await EmailTemplate.findOne({ triggerEvent, isActive: true }).lean();
-  if (doc) return doc;
+  if (doc) {
+    const current = DEFAULT_EMAIL_TEMPLATES.find((t) => t.templateKey === doc.templateKey);
+    if (current && SUPERSEDED_DEFAULT_SUBJECTS[doc.templateKey]?.includes(doc.subject)) {
+      await EmailTemplate.updateOne({ _id: doc._id }, { subject: current.subject });
+      return { ...doc, subject: current.subject };
+    }
+    return doc;
+  }
   const fallback = DEFAULT_EMAIL_TEMPLATES.find((t) => t.triggerEvent === triggerEvent);
   return fallback || null;
 }

@@ -19,6 +19,15 @@ const greeting = () => `<p style="margin:0 0 12px;">Hello {{recipientName}},</p>
 const closing = () =>
   `<p style="margin:24px 0 0;font-size:13px;color:#64748b;">Regards,<br><strong>{{companyName}}</strong> &mdash; Quality &amp; Continuous Improvement</p>`;
 
+/**
+ * Earlier default subjects that were too long. A stored template still carrying one of these
+ * (so never edited by an administrator) is upgraded to the current default subject on use.
+ */
+export const SUPERSEDED_DEFAULT_SUBJECTS: Record<string, string[]> = {
+  "complaint-created": ["Complaint {{complaintNumber}} Registered: {{complaintTitle}}"],
+  "effectiveness-review-due": ["{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})"]
+};
+
 export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
   // ==================== AUTH ====================
   {
@@ -80,7 +89,7 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
     templateKey: "complaint-created",
     templateName: "Complaint Created",
     triggerEvent: "COMPLAINT_CREATED",
-    subject: "Complaint {{complaintNumber}} Registered: {{complaintTitle}}",
+    subject: "Complaint {{complaintNumber}} Registered",
     htmlBody: wrapEmailLayout(
       `${greeting()}${heading("New Complaint Registered")}` +
         `<p style="margin:0 0 12px;">A new complaint has been registered and logged in the system.</p>` +
@@ -473,7 +482,7 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
     templateKey: "effectiveness-review-due",
     templateName: "Effectiveness Review Due",
     triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
-    subject: "{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})",
+    subject: "{{statusLabel}}: Effectiveness Review {{complaintNumber}}",
     htmlBody: wrapEmailLayout(
       `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}` +
         `<p style="margin:0 0 12px;">The 6-month effectiveness review for <strong>Complaint {{complaintNumber}}</strong> is {{timingText}}. Please confirm that the root causes are eliminated and no repeat failure has occurred, then record the overall effectiveness result.</p>` +

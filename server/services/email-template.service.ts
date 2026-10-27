@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import { connectDB } from "../config/db";
 import { EmailTemplate } from "../models/EmailTemplate";
-import { DEFAULT_EMAIL_TEMPLATES } from "../lib/email-template-defaults";
+import { DEFAULT_EMAIL_TEMPLATES, SUPERSEDED_DEFAULT_SUBJECTS } from "../lib/email-template-defaults";
 import {
   getSampleVariables,
   renderTemplate,
@@ -82,7 +82,15 @@ export async function getActiveTemplateByTrigger(triggerEvent: string): Promise<
 } | null> {
   await connectDB();
   const doc = await EmailTemplate.findOne({ triggerEvent, isActive: true }).lean();
-  if (doc) return doc;
+  if (doc) {
+    // Upgrade a never-edited template that still has an old, overly long default subject.
+    const current = DEFAULT_EMAIL_TEMPLATES.find((t) => t.templateKey === doc.templateKey);
+    if (current && SUPERSEDED_DEFAULT_SUBJECTS[doc.templateKey]?.includes(doc.subject)) {
+      await EmailTemplate.updateOne({ _id: doc._id }, { subject: current.subject });
+      return { ...doc, subject: current.subject };
+    }
+    return doc;
+  }
 
   // Fallback to in-memory default if DB has no active template
   const fallback = DEFAULT_EMAIL_TEMPLATES.find((t) => t.triggerEvent === triggerEvent);
