@@ -3518,13 +3518,22 @@ async function getComplaintDetail(complaintId, user) {
   const context = await loadComplaintContext(complaintId, user);
   const tatConfig = await resolveTatConfig(context.doc.company);
   const capas = await Capa.find({ complaint: context.doc._id }).populate("owner", "name").sort({ sequence: 1 }).lean();
-  const [ownerUser, ownerEmployee] = await Promise.all([
+  const { priority, internalDept, againstDept, responsibleDept } = context.doc;
+  const [ownerUser, ownerEmployee, priorityDoc, departments] = await Promise.all([
     context.doc.owner ? User.findById(context.doc.owner).select("name").lean() : null,
-    context.doc.ownerEmployee ? Employee.findById(context.doc.ownerEmployee).select("name").lean() : null
+    context.doc.ownerEmployee ? Employee.findById(context.doc.ownerEmployee).select("name").lean() : null,
+    priority ? Priority.findById(priority).select("name").lean() : null,
+    Department.find({ _id: { $in: [internalDept, againstDept, responsibleDept].filter(Boolean) } }).select("name").lean()
   ]);
+  const departmentName = (id2) => id2 ? departments.find((entry) => String(entry._id) === String(id2))?.name : void 0;
   return {
     complaint: {
       ...context.doc.toObject(),
+      // The stored references are ids; the page shows these resolved names instead of raw ids.
+      priorityName: priorityDoc?.name,
+      internalDeptName: departmentName(internalDept),
+      againstDeptName: departmentName(againstDept),
+      responsibleDeptName: departmentName(responsibleDept),
       ownerName: ownerUser?.name,
       ownerEmployeeName: ownerEmployee?.name,
       effectivenessReviewDue: effectivenessReviewDue({

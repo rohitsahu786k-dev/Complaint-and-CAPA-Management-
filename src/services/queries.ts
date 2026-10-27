@@ -262,6 +262,10 @@ export type ComplaintDetail = {
   company?: string;
   priority?: string;
   owner?: string;
+  priorityName?: string;
+  internalDeptName?: string;
+  againstDeptName?: string;
+  responsibleDeptName?: string;
   ownerName?: string;
   ownerEmployeeName?: string;
   effectivenessReviewDue?: string | null;

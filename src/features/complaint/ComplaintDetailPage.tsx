@@ -374,13 +374,13 @@ export function ComplaintDetailPage() {
         <div>
           <span className="text-slate-400 block font-medium">Type / Priority</span>
           <span className="font-bold text-slate-800 text-sm mt-0.5 block">
-            {complaint.type} • {complaint.priority ?? "Normal"}
+            {complaint.type} • {complaint.priorityName ?? "Normal"}
           </span>
         </div>
         <div>
           <span className="text-slate-400 block font-medium">Customer / Raising Dept</span>
           <span className="font-semibold text-slate-800 text-sm mt-0.5 block truncate">
-            {complaint.customer || complaint.internalDept || "Internal"}
+            {complaint.customer || complaint.internalDeptName || "Internal"}
           </span>
         </div>
         <div>
@@ -392,7 +392,7 @@ export function ComplaintDetailPage() {
         <div>
           <span className="text-slate-400 block font-medium">Responsible Dept</span>
           <span className="font-semibold text-slate-800 text-sm mt-0.5 block truncate">
-            {deptObj?.name ?? complaint.responsibleDept ?? complaint.againstDept ?? "—"}
+            {complaint.responsibleDeptName ?? deptObj?.name ?? complaint.againstDeptName ?? "—"}
           </span>
         </div>
         <div>
@@ -536,7 +536,7 @@ export function ComplaintDetailPage() {
                     { label: "Complaint Number", value: complaint.number },
                     { label: "Classification", value: complaint.type },
                     { label: "Status", value: complaint.status },
-                    { label: "Priority", value: complaint.priority ?? "Normal" },
+                    { label: "Priority", value: complaint.priorityName ?? "Normal" },
                     { label: "Category", value: complaint.category ?? "—" },
                     { label: "Sub Category", value: complaint.subCategory ?? "—" },
                     { label: "Source", value: complaint.source ?? "Customer" },
