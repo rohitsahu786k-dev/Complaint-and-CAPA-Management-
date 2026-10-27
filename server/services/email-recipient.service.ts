@@ -45,6 +45,31 @@ export async function resolveDepartmentCc(ref: {
   return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head", "Department Management"] });
 }
 
+/**
+ * The Manager and HOD kept on each recipient's own Employee Directory record, so a person who
+ * receives a complaint email always has their reporting line copied, whatever department the
+ * complaint belongs to. Matches the recipient's address to the employee's email or login email.
+ */
+export async function resolveRecipientChainCc(recipients: string[]): Promise<string[]> {
+  const addresses = Array.from(new Set(recipients.map((entry) => normalizeEmail(entry)).filter((entry): entry is string => Boolean(entry))));
+  if (addresses.length === 0) return [];
+  await connectDB();
+
+  const users = await User.find({ email: { $in: addresses }, active: true }).select("_id").lean();
+  const employees = await Employee.find({
+    active: { $ne: false },
+    $or: [{ email: { $in: addresses } }, ...(users.length > 0 ? [{ linkedUser: { $in: users.map((user) => user._id) } }] : [])]
+  })
+    .select("managerEmail hodEmail")
+    .lean();
+
+  const chain = new Set<string>();
+  for (const employee of employees) {
+    for (const email of [...normalizeEmailList(employee.managerEmail), ...normalizeEmailList(employee.hodEmail)]) chain.add(email);
+  }
+  return Array.from(chain);
+}
+
 export async function resolveRecipients(options: RecipientResolutionOptions): Promise<string[]> {
   await connectDB();
   const recipientSet = new Set<string>();

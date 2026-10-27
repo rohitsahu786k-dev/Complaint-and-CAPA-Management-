@@ -2085,6 +2085,21 @@ async function resolveDepartmentCc(ref) {
   if (!ref.complaintId && !ref.capaId) return [];
   return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head", "Department Management"] });
 }
+async function resolveRecipientChainCc(recipients) {
+  const addresses = Array.from(new Set(recipients.map((entry) => normalizeEmail(entry)).filter((entry) => Boolean(entry))));
+  if (addresses.length === 0) return [];
+  await connectDB();
+  const users = await User.find({ email: { $in: addresses }, active: true }).select("_id").lean();
+  const employees = await Employee.find({
+    active: { $ne: false },
+    $or: [{ email: { $in: addresses } }, ...users.length > 0 ? [{ linkedUser: { $in: users.map((user) => user._id) } }] : []]
+  }).select("managerEmail hodEmail").lean();
+  const chain = /* @__PURE__ */ new Set();
+  for (const employee of employees) {
+    for (const email of [...normalizeEmailList(employee.managerEmail), ...normalizeEmailList(employee.hodEmail)]) chain.add(email);
+  }
+  return Array.from(chain);
+}
 async function resolveRecipients(options) {
   await connectDB();
   const recipientSet = /* @__PURE__ */ new Set();
@@ -3072,8 +3087,9 @@ async function sendTemplatedEmail(input) {
     complaintId: input.relatedComplaintId,
     capaId: input.relatedCapaId
   }).catch(() => []);
+  const recipientChainCc = input.relatedComplaintId || input.relatedCapaId ? await resolveRecipientChainCc(cleanRecipients).catch(() => []) : [];
   const ccList = Array.from(
-    new Set([...input.cc ?? [], ...departmentCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
+    new Set([...input.cc ?? [], ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
   ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
   input = { ...input, cc: ccList };
   const appUrl = getAppUrl();

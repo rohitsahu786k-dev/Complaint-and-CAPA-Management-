@@ -3,7 +3,7 @@ import { getAppUrl } from "../lib/app-url";
 import { DEFAULT_EMAIL_LOGO_URL } from "../lib/email-layout";
 import { escapeHtml, renderTemplate } from "../lib/email-template-renderer";
 import { createTransporter, fromAddress, isSmtpConfigured } from "../lib/mailer";
-import { resolveDepartmentCc } from "./email-recipient.service";
+import { resolveDepartmentCc, resolveRecipientChainCc } from "./email-recipient.service";
 import { getActiveTemplateByTrigger } from "./email-template.service";
 import { hasDedupeKeyBeenSent, writeEmailLog, getEmailLogById } from "./email-log.service";
 import { EmailLog } from "../models/EmailLog";
@@ -111,8 +111,14 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
     complaintId: input.relatedComplaintId,
     capaId: input.relatedCapaId
   }).catch(() => [] as string[]);
+  // Complaint and CAPA emails also copy the reporting line of each recipient. Account and password
+  // emails carry no complaint or CAPA reference, so they are never copied to anyone else.
+  const recipientChainCc =
+    input.relatedComplaintId || input.relatedCapaId
+      ? await resolveRecipientChainCc(cleanRecipients).catch(() => [] as string[])
+      : [];
   const ccList = Array.from(
-    new Set([...(input.cc ?? []), ...departmentCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
+    new Set([...(input.cc ?? []), ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
   ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
   input = { ...input, cc: ccList };
 
