@@ -96,7 +96,7 @@ export function NewComplaintPage() {
     const timer = window.setTimeout(async () => {
       setCheckingDuplicates(true);
       try {
-        const search = new URLSearchParams({ company, category, pageSize: "5", isRepeat: "" });
+        const search = new URLSearchParams({ company, category, pageSize: "5" });
         if (customer) search.set("search", customer);
         else if (product) search.set("search", product);
         const result = await api<{ items: DuplicateHit[] }>(`/api/complaints?${search.toString()}`);
@@ -132,7 +132,7 @@ export function NewComplaintPage() {
       toast.success("Complaint registered", `${result.complaint.number} was created.`);
       navigate(`/complaints/${result.complaint._id}`);
     } catch (error) {
-      toast.error("The complaint could not be registered", error instanceof Error ? error.message : "Check the form and try again.");
+      toast.failure(error, "The complaint could not be registered");
     }
   }
 

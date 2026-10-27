@@ -85,7 +85,7 @@ export function SystemRestorePage() {
       if (dryRun) toast.success("Restore validation complete", "No production data was changed.");
       else toast.success("Merge-only restore completed", "Existing records were left untouched.");
     } catch (error) {
-      toast.error("Restore failed", error instanceof Error ? error.message : "The backup could not be processed.");
+      toast.failure(error, "Restore failed");
     } finally {
       setBusy(false);
     }

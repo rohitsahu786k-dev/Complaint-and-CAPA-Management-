@@ -7,6 +7,7 @@ import { Field, Select } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { EMAIL_TRIGGER_EVENTS, EMAIL_TRIGGER_LABELS, type EmailTriggerEvent } from "@shared/constants/domain";
 import { api } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 import { EmailTemplateForm, type TemplateData } from "./EmailTemplateForm";
 
 type PreviewResult = {
@@ -70,7 +71,7 @@ export function EmailTemplateList() {
       queryClient.invalidateQueries({ queryKey: ["email-logs"] });
     },
     onError: (err: Error) => {
-      setTestSendResult(`Failed to send test email: ${err.message}`);
+      setTestSendResult(`Failed to send test email: ${errorText(err, "Try again.")}`);
     }
   });
 

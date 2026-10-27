@@ -12,14 +12,13 @@ import { StatusBadge } from "@/components/ui/StatusBadge";
 import { useToast } from "@/components/ui/toast-context";
 import { downloadSheet, timestampedName } from "@/lib/excel";
 import { formatDate, statusTone } from "@/lib/format";
-import { api } from "@/lib/api";
+import { fetchAllPages } from "@/lib/api";
 import {
   useComplaints,
   useConfiguration,
   useMasterBootstrap,
   usePermissions,
-  type ComplaintListItem,
-  type Paginated
+  type ComplaintListItem
 } from "@/services/queries";
 
 const FILTER_KEYS = ["type", "status", "priority", "category", "responsibleDept", "company", "isRepeat", "search", "receivedFrom", "receivedTo"] as const;
@@ -135,13 +134,12 @@ export function ComplaintsListPage() {
 
   async function exportFiltered() {
     try {
-      const all = await api<Paginated<ComplaintListItem>>(
-        `/api/complaints?${new URLSearchParams({ ...(query as Record<string, string>), page: "1", pageSize: "100" }).toString()}`
-      );
+      const { page: _page, pageSize: _pageSize, ...filters } = query as Record<string, string>;
+      const items = await fetchAllPages<ComplaintListItem>("/api/complaints", filters);
       downloadSheet(
         timestampedName("complaints"),
         "Complaints",
-        all.items.map((row) => ({
+        items.map((row) => ({
           "Complaint No": row.number,
           Company: row.company?.name ?? "",
           Type: row.type,
@@ -157,9 +155,9 @@ export function ComplaintsListPage() {
           Closed: formatDate(row.closedAt, "")
         }))
       );
-      toast.success("Export ready", `${all.items.length} rows exported using the current filters.`);
+      toast.success("Export ready", `${items.length} rows exported using the current filters.`);
     } catch (exportError) {
-      toast.error("Export failed", exportError instanceof Error ? exportError.message : "Try again.");
+      toast.failure(exportError, "Export failed");
     }
   }
 

@@ -117,8 +117,8 @@ export function ComplaintDetailPage() {
 
   const targetDates = useMemo(() => {
     return {
-      d3: tat.find((t) => t.stage.toLowerCase() === "containment")?.dueAt ?? "",
-      d5: tat.find((t) => t.stage.toLowerCase() === "capa assignment")?.dueAt ?? "",
+      d3: tat.find((t) => t.stage === "cont")?.dueAt ?? "",
+      d5: tat.find((t) => t.stage === "capa")?.dueAt ?? "",
       d6: ""
     };
   }, [tat]);

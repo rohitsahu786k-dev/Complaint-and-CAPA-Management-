@@ -59,7 +59,7 @@ export function RepeatAnalysisPage() {
 
   const repeatReviewMutation = useApiMutation<
     { complaint: unknown },
-    { action: "confirm" | "clear"; remarks: string }
+    { isRepeat: boolean; remarks: string }
   >(
     "POST",
     () => `/api/complaints/${reviewTarget?.id}/repeat-review`,
@@ -111,7 +111,7 @@ export function RepeatAnalysisPage() {
     setReviewError(null);
     try {
       await repeatReviewMutation.mutateAsync({
-        action: reviewAction,
+        isRepeat: reviewAction === "confirm",
         remarks: reviewRemarks.trim()
       });
       toast.success(

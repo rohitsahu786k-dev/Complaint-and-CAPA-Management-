@@ -15,6 +15,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Field";
 import { EMAIL_TRIGGER_EVENTS, EMAIL_TRIGGER_LABELS } from "@shared/constants/domain";
 import { api } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 
 type EmailLogItem = {
   _id: string;
@@ -89,7 +90,7 @@ export function EmailLogTable() {
     },
     onError: (err: Error, logId) => {
       setRetryingId(null);
-      setRetryResult({ id: logId, success: false, msg: err.message || "Retry failed" });
+      setRetryResult({ id: logId, success: false, msg: errorText(err, "Retry failed") });
     }
   });
 

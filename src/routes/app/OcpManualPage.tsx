@@ -1,17 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  BookOpen,
   ChevronLeft,
   ChevronRight,
   Download,
   ExternalLink,
-  Eye,
-  FileDown,
   FileText,
   Maximize2,
   Minimize2,
   Printer,
-  RotateCcw,
   Search,
   ShieldCheck,
   ZoomIn,

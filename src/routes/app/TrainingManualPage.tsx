@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-  BookOpen,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
@@ -9,7 +8,6 @@ import {
   Gauge,
   History,
   Layers,
-  Mail,
   Repeat2,
   Search,
   Settings,
@@ -20,7 +18,6 @@ import {
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/Cards";
 import { PageHeader } from "@/components/ui/PageHeader";
-import { StatusBadge } from "@/components/ui/StatusBadge";
 
 interface ModuleSection {
   id: string;

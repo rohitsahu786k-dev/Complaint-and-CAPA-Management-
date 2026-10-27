@@ -5,6 +5,7 @@ import { AuthLayout } from "@/layouts/AuthLayout";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 
 export function ForgotPasswordPage() {
   const [value, setValue] = useState("");
@@ -21,7 +22,7 @@ export function ForgotPasswordPage() {
       await api("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ emailOrUsername: value }) });
       setDone(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Reset email could not be sent.");
+      setError(errorText(err, "Reset email could not be sent."));
     } finally {
       setSending(false);
     }

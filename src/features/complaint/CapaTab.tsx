@@ -285,7 +285,7 @@ export function CapaTab({ complaint, capas, canEdit }: { complaint: ComplaintDet
             await removeCapa.mutateAsync({ id: deleteTarget._id });
             toast.success("CAPA deleted", `${deleteTarget.number} was removed.`);
           } catch (error) {
-            toast.error("The CAPA could not be deleted", error instanceof Error ? error.message : "Try again.");
+            toast.failure(error, "The CAPA could not be deleted");
           } finally {
             setDeleteTarget(null);
           }
@@ -330,7 +330,7 @@ function EvidencePanel({ capa, complaint, onClose }: { capa: CapaItem; complaint
         await linkEvidence.mutateAsync({ attachment: result.attachment._id, description: "" });
         toast.success("Evidence uploaded", `${file.name} was attached to ${capa.number}.`);
       } catch (error) {
-        toast.error("Upload failed", error instanceof Error ? error.message : "Try again.");
+        toast.failure(error, "Upload failed");
       }
     }
   }
@@ -388,7 +388,7 @@ function EvidencePanel({ capa, complaint, onClose }: { capa: CapaItem; complaint
                         await removeFile.mutateAsync({ id: file._id });
                         toast.success("File removed", `${file.originalFilename} was deleted.`);
                       } catch (error) {
-                        toast.error("The file could not be removed", error instanceof Error ? error.message : "Try again.");
+                        toast.failure(error, "The file could not be removed");
                       }
                     }}
                   >

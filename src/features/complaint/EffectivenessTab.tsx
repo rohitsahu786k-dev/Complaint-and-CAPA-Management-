@@ -75,10 +75,10 @@ export function EffectivenessTab({
   const verifyCapaMutation = useApiMutation<
     { capa: CapaItem },
     {
-      effectiveness: "Effective" | "Not Effective";
+      result: "Effective" | "Not Effective";
       verificationMethod: string;
-      effectivenessEvidence?: string;
-      effectivenessRemarks?: string;
+      effectivenessEvidence: string;
+      remarks?: string;
     }
   >(
     "POST",
@@ -103,10 +103,10 @@ export function EffectivenessTab({
     if (!selectedCapa) return;
     try {
       await verifyCapaMutation.mutateAsync({
-        effectiveness: capaResult,
+        result: capaResult,
         verificationMethod,
-        effectivenessEvidence: effectivenessEvidence.trim() || undefined,
-        effectivenessRemarks: effectivenessRemarks.trim() || undefined
+        effectivenessEvidence: effectivenessEvidence.trim(),
+        remarks: effectivenessRemarks.trim() || undefined
       });
       toast.success(
         capaResult === "Effective"
@@ -121,6 +121,10 @@ export function EffectivenessTab({
   }
 
   function handleCapaSubmit() {
+    if (effectivenessEvidence.trim().length < 2) {
+      toast.error("Evidence reference is required", "Enter the audit document, test report or inspection reference that supports the result.");
+      return;
+    }
     if (capaResult === "Not Effective") {
       setShowCapaReopenWarning(true);
     } else {
@@ -345,7 +349,7 @@ export function EffectivenessTab({
             </Select>
           </Field>
 
-          <Field label="Evidence Reference">
+          <Field label="Evidence Reference" required>
             <Input
               placeholder="Audit document #, test report ID, inspection lot..."
               value={effectivenessEvidence}

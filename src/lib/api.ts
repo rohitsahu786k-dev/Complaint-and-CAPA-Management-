@@ -14,6 +14,18 @@ export class ApiError extends Error {
   }
 }
 
+/** The server caps a list page at 100 rows, so an export reads every page in turn. */
+export async function fetchAllPages<T>(path: string, params: Record<string, string> = {}, maxRows = 5000): Promise<T[]> {
+  const items: T[] = [];
+  for (let page = 1; items.length < maxRows; page += 1) {
+    const query = new URLSearchParams({ ...params, page: String(page), pageSize: "100" });
+    const result = await api<{ items: T[]; totalPages: number }>(`${path}?${query.toString()}`);
+    items.push(...result.items);
+    if (result.items.length === 0 || page >= result.totalPages) break;
+  }
+  return items;
+}
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,

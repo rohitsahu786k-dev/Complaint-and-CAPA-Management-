@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send, ShieldAlert, CheckCircle2, AlertTriangle, ArrowRight, Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 
 type EscalationConfig = {
   active: boolean;
@@ -38,7 +39,7 @@ export function EscalationMailPanel() {
       queryClient.invalidateQueries({ queryKey: ["email-logs"] });
     },
     onError: (err: Error) => {
-      setRunMessage(`Escalation run failed: ${err.message}`);
+      setRunMessage(`Escalation run failed: ${errorText(err, "Try again.")}`);
     }
   });
 

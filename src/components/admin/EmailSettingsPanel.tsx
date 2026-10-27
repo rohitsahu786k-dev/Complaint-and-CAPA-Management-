@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
+import { errorText } from "@/lib/errors";
 
 type SmtpStatus = {
   isConfigured: boolean;
@@ -39,7 +40,7 @@ export function EmailSettingsPanel() {
       queryClient.invalidateQueries({ queryKey: ["email-settings"] });
     },
     onError: (err: Error) => {
-      setFeedback({ type: "error", text: err.message || "Failed to verify SMTP connection" });
+      setFeedback({ type: "error", text: errorText(err, "Failed to verify SMTP connection") });
     }
   });
 
@@ -63,7 +64,7 @@ export function EmailSettingsPanel() {
       queryClient.invalidateQueries({ queryKey: ["email-logs"] });
     },
     onError: (err: Error) => {
-      setFeedback({ type: "error", text: err.message || "Failed to send live test email" });
+      setFeedback({ type: "error", text: errorText(err, "Failed to send live test email") });
     }
   });
 

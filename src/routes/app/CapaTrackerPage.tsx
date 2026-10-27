@@ -65,7 +65,7 @@ export function CapaTrackerPage() {
   const companies = master.data?.companies ?? [];
   const canReview = permissions.isMasterAdmin || permissions.can("capa.evidence.review");
 
-  const reviewMutation = useApiMutation<{ capa: CapaItem }, { status: "Accepted" | "Rejected"; remarks?: string }>(
+  const reviewMutation = useApiMutation<{ capa: CapaItem }, { decision: "Accepted" | "Rejected"; remarks?: string }>(
     "POST",
     () => `/api/capas/${reviewTarget?._id}/evidence/review`,
     [["capas"], ["analytics"]]
@@ -96,7 +96,7 @@ export function CapaTrackerPage() {
     setReviewError(null);
     try {
       await reviewMutation.mutateAsync({
-        status: decision,
+        decision,
         remarks: reviewRemarks.trim() || undefined
       });
       toast.success(`CAPA evidence ${decision.toLowerCase()} successfully`);

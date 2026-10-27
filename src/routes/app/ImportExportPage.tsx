@@ -15,7 +15,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { Field, Select } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/toast-context";
-import { api } from "@/lib/api";
+import { api, fetchAllPages } from "@/lib/api";
 import { downloadSheet, downloadTemplate, readSheet } from "@/lib/excel";
 import { formatDate } from "@/lib/format";
 import { usePermissions } from "@/services/queries";
@@ -170,12 +170,12 @@ export function ImportExportPage() {
   async function handleExportComplaints() {
     setIsExportingEntity("complaints");
     try {
-      const res = await api<{ items: Record<string, unknown>[] }>("/api/complaints?pageSize=5000");
-      if (!res.items || res.items.length === 0) {
+      const items = await fetchAllPages<Record<string, unknown>>("/api/complaints");
+      if (items.length === 0) {
         toast.error("No complaint records found");
         return;
       }
-      const flattened = res.items.map((c) => ({
+      const flattened = items.map((c) => ({
         "Complaint Number": String(c.number ?? ""),
         Type: String(c.type ?? ""),
         Company: typeof c.company === "object" ? String((c.company as { name?: string })?.name ?? "") : String(c.company ?? "—"),
@@ -200,12 +200,12 @@ export function ImportExportPage() {
   async function handleExportCapas() {
     setIsExportingEntity("capas");
     try {
-      const res = await api<{ items: Record<string, unknown>[] }>("/api/capas?pageSize=5000");
-      if (!res.items || res.items.length === 0) {
+      const items = await fetchAllPages<Record<string, unknown>>("/api/capas");
+      if (items.length === 0) {
         toast.error("No CAPA records found");
         return;
       }
-      const flattened = res.items.map((c) => ({
+      const flattened = items.map((c) => ({
         "CAPA Number": String(c.number ?? ""),
         Type: String(c.type ?? ""),
         Action: String(c.action ?? ""),
