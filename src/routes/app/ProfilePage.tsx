@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/Button";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { useToast } from "@/components/ui/toast-context";
+import { changePasswordSchema } from "@shared/schemas/auth";
 import { useChangePassword, useCurrentUser } from "@/hooks/useAuth";
+import { ApiError } from "@/lib/api";
 
 export function ProfilePage() {
   const { data } = useCurrentUser();
@@ -15,17 +17,33 @@ export function ProfilePage() {
   const toast = useToast();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   const passwordChangeRequired =
     Boolean(data?.user.forcePasswordChange) ||
     Boolean((location.state as { passwordChangeRequired?: boolean } | null)?.passwordChangeRequired);
 
+  /** The first reason the change cannot go through, checked here so the user sees it before the round trip. */
+  function validate(): string | null {
+    if (!currentPassword) return "Enter your current (temporary) password.";
+    const parsed = changePasswordSchema.safeParse({ currentPassword, newPassword });
+    if (!parsed.success) return parsed.error.issues[0]?.message ?? "The new password is not valid.";
+    if (newPassword === currentPassword) return "The new password must be different from the current password.";
+    if (newPassword !== confirmPassword) return "The new password and its confirmation do not match.";
+    return null;
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    const problem = validate();
+    setFormError(problem);
+    if (problem) return;
     try {
       await changePassword.mutateAsync({ currentPassword, newPassword });
       setCurrentPassword("");
       setNewPassword("");
+      setConfirmPassword("");
       if (passwordChangeRequired) {
         // The temporary-password gate is now lifted, so take the user straight to the
         // dashboard rather than leaving them on the page that was blocking them.
@@ -35,7 +53,10 @@ export function ProfilePage() {
       }
       toast.success("Password updated", "Your account password was changed successfully.");
     } catch (error) {
-      toast.error("Password change failed", error instanceof Error ? error.message : "Please check the entered values and try again.");
+      // Server reasons such as "Current password is incorrect" stay visible next to the form.
+      const issue = error instanceof ApiError ? error.issues[0]?.message : undefined;
+      setFormError(issue ?? (error instanceof Error ? error.message : "Please check the entered values and try again."));
+      toast.failure(error, "Password change failed");
     }
   }
 
@@ -69,7 +90,7 @@ export function ProfilePage() {
             </div>
           ) : null}
           <label className="mt-4 block text-sm font-semibold text-slate-700">
-            Current password
+            {passwordChangeRequired ? "Current (temporary) password" : "Current password"}
             <PasswordInput
               className="mt-1.5"
               autoComplete="current-password"
@@ -78,6 +99,11 @@ export function ProfilePage() {
               required
             />
           </label>
+          {passwordChangeRequired ? (
+            <p className="mt-1.5 text-xs text-slate-500">
+              Copy the temporary password from your email exactly. Your browser may have filled this box with an older saved password, so clear it if so.
+            </p>
+          ) : null}
           <label className="mt-4 block text-sm font-semibold text-slate-700">
             New password
             <PasswordInput
@@ -90,6 +116,21 @@ export function ProfilePage() {
             />
           </label>
           <p className="mt-2 text-xs text-slate-500">Use at least 8 characters with at least one letter and one number.</p>
+          <label className="mt-4 block text-sm font-semibold text-slate-700">
+            Confirm new password
+            <PasswordInput
+              className="mt-1.5"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(event) => setConfirmPassword(event.target.value)}
+              required
+            />
+          </label>
+          {formError ? (
+            <p className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+              {formError}
+            </p>
+          ) : null}
           <Button className="mt-5" disabled={changePassword.isPending}>
             <KeyRound className="h-4 w-4" />
             {changePassword.isPending ? "Updating password" : "Update password"}
