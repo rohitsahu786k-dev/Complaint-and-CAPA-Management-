@@ -514,8 +514,8 @@ export async function assignableUsers(user: ApiUser | undefined, companyId?: str
 }
 
 /**
- * Active Master Data employees who have no portal login yet. A complaint owner must be a
- * portal user, so these are shown to the picker but cannot be selected.
+ * Active Master Data employees who have no portal login yet. They can be named as a
+ * complaint's owner (stored as `ownerEmployee`) but cannot act in the portal.
  */
 export async function employeesWithoutLogin(user: ApiUser | undefined, companyId?: string) {
   const scope = await resolveScope(user, companyId);

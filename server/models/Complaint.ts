@@ -129,6 +129,8 @@ const ComplaintSchema = new Schema(
     description: { type: String, required: true, trim: true },
 
     owner: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    /** Directory employee named as owner when they have no portal login; `owner` stays the accountable user. */
+    ownerEmployee: { type: Schema.Types.ObjectId, ref: "Employee", index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
 
     acknowledgedAt: { type: Date, default: null },

@@ -119,7 +119,7 @@ export function ComplaintsListPage() {
     { key: "category", header: "Category", render: (row) => row.category || "—" },
     { key: "responsibleDept", header: "Department", render: (row) => row.responsibleDept?.name ?? "—", hideOnMobile: true },
     { key: "priority", header: "Priority", render: (row) => row.priority?.name ?? "—" },
-    { key: "owner", header: "Owner", render: (row) => row.owner?.name ?? "—", hideOnMobile: true },
+    { key: "owner", header: "Owner", render: (row) => row.ownerEmployee?.name ?? row.owner?.name ?? "—", hideOnMobile: true },
     { key: "receivedAt", header: "Received", sortable: true, render: (row) => formatDate(row.receivedAt) },
     {
       key: "status",
@@ -151,7 +151,7 @@ export function ComplaintsListPage() {
           Customer: row.customer ?? "",
           Product: row.product ?? "",
           Department: row.responsibleDept?.name ?? "",
-          Owner: row.owner?.name ?? "",
+          Owner: row.ownerEmployee?.name ?? row.owner?.name ?? "",
           Status: row.status,
           Repeat: row.isRepeat ? "Yes" : "No",
           Closed: formatDate(row.closedAt, "")

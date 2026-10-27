@@ -124,7 +124,9 @@ export function NewComplaintPage() {
         responsibleDept: type === "External" ? values.responsibleDept : values.againstDept,
         internalDept: type === "Internal" ? values.internalDept : undefined,
         againstDept: type === "Internal" ? values.againstDept : undefined,
-        owner: values.owner || undefined
+        // Employees without a portal login are prefixed "emp:" in the picker.
+        owner: values.owner && !values.owner.startsWith("emp:") ? values.owner : undefined,
+        ownerEmployee: values.owner?.startsWith("emp:") ? values.owner.slice(4) : undefined
       };
       const result = await createComplaint.mutateAsync(payload as FormValues);
       toast.success("Complaint registered", `${result.complaint.number} was created.`);
@@ -294,7 +296,7 @@ export function NewComplaintPage() {
                 control={form.control}
                 name="owner"
                 render={({ field }) => (
-                  <Field label="Complaint owner" hint="Defaults to you when left blank.">
+                  <Field label="Complaint owner" hint="Defaults to you. Directory employees without a login are named as owner and emailed; you stay the accountable user.">
                     <Select value={field.value ?? ""} onChange={field.onChange}>
                       <option value="">Assign to me</option>
                       {(assignable.data?.users ?? []).map((user) => (
@@ -303,10 +305,10 @@ export function NewComplaintPage() {
                         </option>
                       ))}
                       {(assignable.data?.employees ?? []).length > 0 ? (
-                        <optgroup label="Employees without a portal login (cannot be assigned)">
+                        <optgroup label="Employee Directory (no portal login)">
                           {(assignable.data?.employees ?? []).map((employee) => (
-                            <option key={employee.id} value="" disabled>
-                              {employee.name} {employee.designation ? `— ${employee.designation}` : ""} (no portal login)
+                            <option key={employee.id} value={`emp:${employee.id}`}>
+                              {employee.name} {employee.designation ? `— ${employee.designation}` : ""}
                             </option>
                           ))}
                         </optgroup>

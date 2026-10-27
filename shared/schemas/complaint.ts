@@ -38,6 +38,7 @@ const baseComplaintSchema = z.object({
   subCategory: optionalText(120),
   description: z.string().trim().min(10, "Describe the complaint in at least 10 characters").max(5000),
   owner: objectIdSchema.optional(),
+  ownerEmployee: objectIdSchema.optional(),
   attachments: z.array(objectIdSchema).max(20).default([])
 });
 

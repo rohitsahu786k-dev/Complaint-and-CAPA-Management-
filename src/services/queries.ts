@@ -217,6 +217,7 @@ export type ComplaintListItem = {
   company?: { _id: string; name: string; code: string } | null;
   priority?: { _id: string; name: string; color: string } | null;
   owner?: { _id: string; name: string } | null;
+  ownerEmployee?: { _id: string; name: string } | null;
   responsibleDept?: { _id: string; name: string } | null;
 };
 
@@ -261,6 +262,8 @@ export type ComplaintDetail = {
   company?: string;
   priority?: string;
   owner?: string;
+  ownerName?: string;
+  ownerEmployeeName?: string;
   responsibleDept?: string;
   internalDept?: string;
   againstDept?: string;

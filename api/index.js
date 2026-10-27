@@ -885,6 +885,8 @@ var ComplaintSchema = new Schema5(
     subCategory: { type: String, trim: true },
     description: { type: String, required: true, trim: true },
     owner: { type: Schema5.Types.ObjectId, ref: "User", index: true },
+    /** Directory employee named as owner when they have no portal login; `owner` stays the accountable user. */
+    ownerEmployee: { type: Schema5.Types.ObjectId, ref: "Employee", index: true },
     createdBy: { type: Schema5.Types.ObjectId, ref: "User" },
     acknowledgedAt: { type: Date, default: null },
     ackDelayReason: { type: DelayReasonSchema, default: null },
@@ -3282,6 +3284,8 @@ async function createComplaint(input, user) {
   const number = await nextComplaintNumber(input.company, input.receivedAt);
   const tatConfig = await resolveTatConfig(input.company);
   const responsibleDept = input.type === "External" ? input.responsibleDept : input.againstDept;
+  const ownerEmployee = input.ownerEmployee && !input.owner ? await Employee.findOne({ _id: input.ownerEmployee, company: input.company, active: true }).select("name email").lean() : null;
+  if (input.ownerEmployee && !input.owner && !ownerEmployee) throw httpError(400, "The selected employee is not active in this company");
   const doc = await Complaint.create({
     number,
     company: input.company,
@@ -3305,6 +3309,7 @@ async function createComplaint(input, user) {
     subCategory: input.subCategory,
     description: input.description,
     owner: input.owner ?? actor.id,
+    ownerEmployee: ownerEmployee?._id,
     createdBy: actor.id,
     workflowLog: [{ stage: "Registered", at: /* @__PURE__ */ new Date(), by: actor.id, byName: actor.name, notes: "Complaint registered" }]
   });
@@ -3364,7 +3369,8 @@ async function createComplaint(input, user) {
   });
   const emailRecipients = await resolveRecipients({
     complaintId: doc._id,
-    targetRoles: ["Complaint Owner"]
+    targetRoles: ["Complaint Owner"],
+    explicitEmails: ownerEmployee?.email ? [ownerEmployee.email] : void 0
   });
   const emailCc = await resolveRecipients({
     complaintId: doc._id,
@@ -3383,7 +3389,7 @@ async function createComplaint(input, user) {
       cc,
       relatedComplaintId: doc._id,
       data: {
-        recipientName: ownerUser?.name ?? "Complaint Owner",
+        recipientName: ownerEmployee?.name ?? ownerUser?.name ?? "Complaint Owner",
         complaintNumber: doc.number,
         complaintTitle: doc.description || doc.number,
         complaintType: doc.type,
@@ -3414,6 +3420,7 @@ var COMPLAINT_LIST_FIELDS = [
   "closedAt",
   "isRepeat",
   "owner",
+  "ownerEmployee",
   "responsibleDept",
   "description"
 ].join(" ");
@@ -3451,7 +3458,7 @@ async function listComplaints(query, user) {
   const sortField = query.sort && /^[a-zA-Z]+$/.test(query.sort) ? query.sort : "receivedAt";
   const sort = { [sortField]: query.order === "asc" ? 1 : -1 };
   const [rows, total] = await Promise.all([
-    Complaint.find(filter).select(COMPLAINT_LIST_FIELDS).sort(sort).skip((query.page - 1) * query.pageSize).limit(query.pageSize).populate("company", "name code").populate("priority", "name color tatMultiplier").populate("owner", "name username").populate("responsibleDept", "name").lean(),
+    Complaint.find(filter).select(COMPLAINT_LIST_FIELDS).sort(sort).skip((query.page - 1) * query.pageSize).limit(query.pageSize).populate("company", "name code").populate("priority", "name color tatMultiplier").populate("owner", "name username").populate("ownerEmployee", "name").populate("responsibleDept", "name").lean(),
     Complaint.countDocuments(filter)
   ]);
   return { rows, total };
@@ -3460,8 +3467,12 @@ async function getComplaintDetail(complaintId, user) {
   const context = await loadComplaintContext(complaintId, user);
   const tatConfig = await resolveTatConfig(context.doc.company);
   const capas = await Capa.find({ complaint: context.doc._id }).populate("owner", "name").sort({ sequence: 1 }).lean();
+  const [ownerUser, ownerEmployee] = await Promise.all([
+    context.doc.owner ? User.findById(context.doc.owner).select("name").lean() : null,
+    context.doc.ownerEmployee ? Employee.findById(context.doc.ownerEmployee).select("name").lean() : null
+  ]);
   return {
-    complaint: context.doc.toObject(),
+    complaint: { ...context.doc.toObject(), ownerName: ownerUser?.name, ownerEmployeeName: ownerEmployee?.name },
     capas,
     tat: buildTatPlan(context.domain, tatConfig),
     tatConfig,
@@ -5872,6 +5883,7 @@ var baseComplaintSchema = z10.object({
   subCategory: optionalText(120),
   description: z10.string().trim().min(10, "Describe the complaint in at least 10 characters").max(5e3),
   owner: objectIdSchema.optional(),
+  ownerEmployee: objectIdSchema.optional(),
   attachments: z10.array(objectIdSchema).max(20).default([])
 });
 var complaintCreateSchema = baseComplaintSchema.superRefine((value, ctx) => {

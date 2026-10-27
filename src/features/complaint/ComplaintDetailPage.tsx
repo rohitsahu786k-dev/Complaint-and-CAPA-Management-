@@ -398,7 +398,7 @@ export function ComplaintDetailPage() {
         <div>
           <span className="text-slate-400 block font-medium">Owner</span>
           <span className="font-semibold text-slate-800 text-sm mt-0.5 block truncate">
-            {complaint.owner ?? "Unassigned"}
+            {complaint.ownerEmployeeName ?? complaint.ownerName ?? "Unassigned"}
           </span>
         </div>
         <div>

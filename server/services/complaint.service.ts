@@ -90,6 +90,12 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
 
   const responsibleDept = input.type === "External" ? input.responsibleDept : input.againstDept;
 
+  // A directory employee without a portal login can be named as owner; the creator stays accountable.
+  const ownerEmployee = input.ownerEmployee && !input.owner
+    ? await Employee.findOne({ _id: input.ownerEmployee, company: input.company, active: true }).select("name email").lean()
+    : null;
+  if (input.ownerEmployee && !input.owner && !ownerEmployee) throw httpError(400, "The selected employee is not active in this company");
+
   const doc = await Complaint.create({
     number,
     company: input.company,
@@ -113,6 +119,7 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
     subCategory: input.subCategory,
     description: input.description,
     owner: input.owner ?? actor.id,
+    ownerEmployee: ownerEmployee?._id,
     createdBy: actor.id,
     workflowLog: [{ stage: "Registered", at: new Date(), by: actor.id, byName: actor.name, notes: "Complaint registered" }]
   });
@@ -181,7 +188,8 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
 
   const emailRecipients = await resolveRecipients({
     complaintId: doc._id,
-    targetRoles: ["Complaint Owner"]
+    targetRoles: ["Complaint Owner"],
+    explicitEmails: ownerEmployee?.email ? [ownerEmployee.email] : undefined
   });
   const emailCc = await resolveRecipients({
     complaintId: doc._id,
@@ -201,7 +209,7 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
       cc,
       relatedComplaintId: doc._id,
       data: {
-        recipientName: ownerUser?.name ?? "Complaint Owner",
+        recipientName: ownerEmployee?.name ?? ownerUser?.name ?? "Complaint Owner",
         complaintNumber: doc.number,
         complaintTitle: doc.description || doc.number,
         complaintType: doc.type,
@@ -244,6 +252,7 @@ const COMPLAINT_LIST_FIELDS = [
   "closedAt",
   "isRepeat",
   "owner",
+  "ownerEmployee",
   "responsibleDept",
   "description"
 ].join(" ");
@@ -293,6 +302,7 @@ export async function listComplaints(query: ComplaintListQuery, user: ApiUser | 
       .populate("company", "name code")
       .populate("priority", "name color tatMultiplier")
       .populate("owner", "name username")
+      .populate("ownerEmployee", "name")
       .populate("responsibleDept", "name")
       .lean(),
     Complaint.countDocuments(filter)
@@ -305,8 +315,12 @@ export async function getComplaintDetail(complaintId: string, user: ApiUser | un
   const context = await loadComplaintContext(complaintId, user);
   const tatConfig = await resolveTatConfig(context.doc.company);
   const capas = await Capa.find({ complaint: context.doc._id }).populate("owner", "name").sort({ sequence: 1 }).lean();
+  const [ownerUser, ownerEmployee] = await Promise.all([
+    context.doc.owner ? User.findById(context.doc.owner).select("name").lean() : null,
+    context.doc.ownerEmployee ? Employee.findById(context.doc.ownerEmployee).select("name").lean() : null
+  ]);
   return {
-    complaint: context.doc.toObject(),
+    complaint: { ...context.doc.toObject(), ownerName: ownerUser?.name, ownerEmployeeName: ownerEmployee?.name },
     capas,
     tat: buildTatPlan(context.domain, tatConfig),
     tatConfig,
