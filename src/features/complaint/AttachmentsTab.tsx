@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ExternalLink, FileIcon, Trash2 } from "lucide-react";
+import { ExternalLink, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SectionCard } from "@/components/ui/Cards";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -13,7 +13,7 @@ import {
   type AttachmentRecord,
   type ComplaintDetail
 } from "@/services/queries";
-import { TabPanel, UploadButton, useCloudinaryUpload } from "./shared";
+import { AttachmentThumb, TabPanel, UploadButton, useCloudinaryUpload } from "./shared";
 
 export function AttachmentsTab({
   complaint,
@@ -97,8 +97,8 @@ export function AttachmentsTab({
               key: "filename",
               header: "File Name",
               render: (item) => (
-                <div className="flex items-center gap-2">
-                  <FileIcon className="h-4 w-4 shrink-0 text-slate-400" />
+                <div className="flex items-center gap-3">
+                  <AttachmentThumb file={item} />
                   <span className="font-semibold text-slate-900 truncate max-w-xs sm:max-w-md">
                     {item.originalFilename}
                   </span>

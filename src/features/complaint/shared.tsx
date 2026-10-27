@@ -1,14 +1,54 @@
 import { useCallback, useState, type ReactNode } from "react";
 import { ALLOWED_UPLOAD_MIME_TYPES, type AttachmentPurpose } from "@shared/constants/domain";
-import { Plus, Trash2, Upload } from "lucide-react";
+import { FileText, Plus, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { Field, Select, Textarea } from "@/components/ui/Field";
 import { Input } from "@/components/ui/Input";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { ActionRow } from "@/services/queries";
 
-export const ACTION_STATUSES = ["Open", "In Progress", "Completed", "Verified"];
+/** A small Cloudinary-resized copy for list rows; any other URL is used unchanged. */
+function thumbnailUrl(url: string) {
+  return url.includes("/upload/") ? url.replace("/upload/", "/upload/c_fill,w_96,h_96,q_auto/") : url;
+}
+
+/** Image files show a thumbnail that opens a larger preview; other files keep a plain file icon. */
+export function AttachmentThumb({ file }: { file: { secureUrl: string; originalFilename: string; mimeType: string } }) {
+  const [open, setOpen] = useState(false);
+  const [thumbFailed, setThumbFailed] = useState(false);
+  if (!file.mimeType.startsWith("image/")) return <FileText className="h-5 w-5 shrink-0 text-slate-400" />;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 hover:ring-2 hover:ring-brand-red/40"
+        title="Preview image"
+        aria-label={`Preview ${file.originalFilename}`}
+      >
+        <img
+          src={thumbFailed ? file.secureUrl : thumbnailUrl(file.secureUrl)}
+          alt={file.originalFilename}
+          loading="lazy"
+          onError={() => setThumbFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      </button>
+      <Modal open={open} onOpenChange={setOpen} title={file.originalFilename}>
+        <img src={file.secureUrl} alt={file.originalFilename} className="mx-auto max-h-[65vh] w-auto max-w-full rounded-md object-contain" />
+        <div className="mt-3 text-right">
+          <a href={file.secureUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold text-brand-red hover:underline">
+            Open original
+          </a>
+        </div>
+      </Modal>
+    </>
+  );
+}
+
+export const ACTION_STATUSES =["Open", "In Progress", "Completed", "Verified"];
 
 /** Reusable D3 / D5 / D6 action table with responsibility, target date and status. */
 export function ActionRowsEditor({

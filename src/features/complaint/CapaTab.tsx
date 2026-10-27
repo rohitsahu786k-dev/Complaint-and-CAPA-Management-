@@ -20,7 +20,7 @@ import {
   type CapaItem,
   type ComplaintDetail
 } from "@/services/queries";
-import { BlockedReasons, TabPanel, UploadButton, useCloudinaryUpload } from "./shared";
+import { AttachmentThumb, BlockedReasons, TabPanel, UploadButton, useCloudinaryUpload } from "./shared";
 
 type CapaFormState = {
   type: string;
@@ -363,7 +363,9 @@ function EvidencePanel({ capa, complaint, onClose }: { capa: CapaItem; complaint
             <ul className="space-y-2">
               {(attachments.data?.attachments ?? []).map((file) => (
                 <li key={file._id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-2">
-                  <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <AttachmentThumb file={file} />
+                    <div className="min-w-0">
                     <a
                       href={file.secureUrl}
                       target="_blank"
@@ -376,6 +378,7 @@ function EvidencePanel({ capa, complaint, onClose }: { capa: CapaItem; complaint
                     <p className="mt-0.5 text-[11px] text-slate-500">
                       {file.mimeType} · {formatBytes(file.bytes)} · {file.uploadedBy?.name ?? "Unknown"} · {formatDateTime(file.uploadedAt)}
                     </p>
+                    </div>
                   </div>
                   <Button
                     variant="ghost"
