@@ -5021,12 +5021,21 @@ async function confirmUpload(input, user) {
       { field: "publicId", message: "Upload the file with the signature issued for this purpose" }
     ]);
   }
-  let resource;
-  try {
-    resource = await client.api.resource(input.publicId, { resource_type: "auto" });
-  } catch {
-    throw httpError(404, "The uploaded asset could not be verified with Cloudinary");
+  let resource = null;
+  for (const resourceType of ["image", "video", "raw"]) {
+    try {
+      resource = await client.api.resource(input.publicId, { resource_type: resourceType });
+      break;
+    } catch (error) {
+      const failure = error;
+      const status = failure.http_code ?? failure.error?.http_code;
+      if (status !== void 0 && status !== 404) {
+        const reason = failure.error?.message ?? failure.message ?? "unknown error";
+        throw httpError(502, `Cloudinary rejected the verification request (HTTP ${status}: ${reason})`);
+      }
+    }
   }
+  if (!resource) throw httpError(404, "The uploaded asset could not be found on Cloudinary");
   const issues = validateUpload({
     originalname: input.originalFilename,
     mimetype: input.mimeType,

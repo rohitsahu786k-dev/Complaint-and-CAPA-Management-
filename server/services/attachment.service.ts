@@ -77,12 +77,24 @@ export async function confirmUpload(input: ConfirmUploadInput, user: ApiUser | u
     ]);
   }
 
-  let resource: { public_id?: string; secure_url?: string; resource_type?: string; bytes?: number; width?: number; height?: number };
-  try {
-    resource = await client.api.resource(input.publicId, { resource_type: "auto" });
-  } catch {
-    throw httpError(404, "The uploaded asset could not be verified with Cloudinary");
+  type CloudinaryResource = { public_id?: string; secure_url?: string; resource_type?: string; bytes?: number; width?: number; height?: number };
+  let resource: CloudinaryResource | null = null;
+  // "auto" only exists for uploads; the lookup API needs the concrete type the asset was stored under.
+  for (const resourceType of ["image", "video", "raw"] as const) {
+    try {
+      resource = (await client.api.resource(input.publicId, { resource_type: resourceType })) as CloudinaryResource;
+      break;
+    } catch (error) {
+      const failure = error as { http_code?: number; error?: { http_code?: number; message?: string }; message?: string };
+      const status = failure.http_code ?? failure.error?.http_code;
+      if (status !== undefined && status !== 404) {
+        // Not "asset not found" but a rejected request (bad credentials, rate limit): say so.
+        const reason = failure.error?.message ?? failure.message ?? "unknown error";
+        throw httpError(502, `Cloudinary rejected the verification request (HTTP ${status}: ${reason})`);
+      }
+    }
   }
+  if (!resource) throw httpError(404, "The uploaded asset could not be found on Cloudinary");
 
   const issues = validateUpload({
     originalname: input.originalFilename,
