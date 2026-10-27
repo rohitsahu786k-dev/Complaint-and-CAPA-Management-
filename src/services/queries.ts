@@ -59,7 +59,7 @@ export function useConfiguration(company?: string) {
 
 export type MasterBootstrap = {
   companies: { _id: string; name: string; code: string; complaintNumberingPrefix: string; active: boolean }[];
-  departments: { _id: string; name: string; code?: string; active: boolean }[];
+  departments: { _id: string; name: string; code?: string; managementEmails?: string; active: boolean }[];
   roles: { _id: string; name: string; permissions: string[]; active: boolean }[];
   permissions: { _id: string; key: string; label: string; group: string }[];
   employees: {

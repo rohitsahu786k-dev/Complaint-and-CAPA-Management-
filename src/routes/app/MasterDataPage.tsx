@@ -277,7 +277,7 @@ export function MasterDataPage() {
   const [userModal, setUserModal] = useState(false);
 
   const [companyForm, setCompanyForm] = useState({ name: "", code: "", complaintNumberingPrefix: "" });
-  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "", company: "" });
+  const [departmentForm, setDepartmentForm] = useState({ name: "", code: "", company: "", managementEmails: "" });
   const [employeeForm, setEmployeeForm] = useState({
     employeeCode: "",
     name: "",
@@ -423,10 +423,10 @@ export function MasterDataPage() {
 
   async function handleDepartmentSubmit() {
     if (!departmentForm.name) return toast.error("Department name is required.");
-    const body = { name: departmentForm.name, code: departmentForm.code, active: true, ...(departmentForm.company ? { company: departmentForm.company } : {}) };
+    const body = { name: departmentForm.name, code: departmentForm.code, managementEmails: departmentForm.managementEmails, active: true, ...(departmentForm.company ? { company: departmentForm.company } : {}) };
     await run(() => api("/api/master/departments", { method: "POST", body: JSON.stringify(body) }), "Department created", () => {
       setDepartmentModal(false);
-      setDepartmentForm({ name: "", code: "", company: "" });
+      setDepartmentForm({ name: "", code: "", company: "", managementEmails: "" });
       void refreshMaster();
     });
   }
@@ -674,6 +674,9 @@ export function MasterDataPage() {
                     <p className="font-semibold text-slate-900">{dept.name}</p>
                     <StatusBadge tone={dept.active ? "green" : "neutral"}>{dept.active ? "Active" : "Inactive"}</StatusBadge>
                   </div>
+                  <p className="mt-1 break-words text-xs text-slate-500">
+                    <span className="font-semibold">Mgmt CC:</span> {dept.managementEmails || "—"}
+                  </p>
                   <RecordActions
                     className="mt-2"
                     active={dept.active}
@@ -683,10 +686,11 @@ export function MasterDataPage() {
                         title: `Edit ${dept.name}`,
                         endpoint: `/api/master/departments/${dept._id}`,
                         refresh: refreshMaster,
-                        values: { name: dept.name, code: dept.code ?? "" },
+                        values: { name: dept.name, code: dept.code ?? "", managementEmails: dept.managementEmails ?? "" },
                         fields: [
                           { key: "name", label: "Department Name", required: true },
-                          { key: "code", label: "Department Code", uppercase: true }
+                          { key: "code", label: "Department Code", uppercase: true },
+                          { key: "managementEmails", label: "Management emails (always CC)", placeholder: "name@onepws.com, name2@onepws.com" }
                         ]
                       })
                     }
@@ -1227,7 +1231,7 @@ export function MasterDataPage() {
 
       <Modal open={companyModal} onOpenChange={setCompanyModal} title="Add Operating Company"><div className="space-y-4"><Field label="Company Legal Name" required><Input value={companyForm.name} onChange={(e) => setCompanyForm({ ...companyForm, name: e.target.value })}/></Field><Field label="Company Code" required><Input value={companyForm.code} onChange={(e) => setCompanyForm({ ...companyForm, code: e.target.value.toUpperCase() })}/></Field><Field label="Complaint Number Prefix" required><Input value={companyForm.complaintNumberingPrefix} onChange={(e) => setCompanyForm({ ...companyForm, complaintNumberingPrefix: e.target.value.toUpperCase() })}/></Field><div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setCompanyModal(false)}>Cancel</Button><Button type="button" onClick={handleCompanySubmit} disabled={saving}>Create Company</Button></div></div></Modal>
 
-      <Modal open={departmentModal} onOpenChange={setDepartmentModal} title="Add Department"><div className="space-y-4"><Field label="Department Name" required><Input value={departmentForm.name} onChange={(e) => setDepartmentForm({ ...departmentForm, name: e.target.value })}/></Field><Field label="Department Code"><Input value={departmentForm.code} onChange={(e) => setDepartmentForm({ ...departmentForm, code: e.target.value.toUpperCase() })}/></Field><Field label="Company"><Select value={departmentForm.company} onChange={(e) => setDepartmentForm({ ...departmentForm, company: e.target.value })}><option value="">Shared / All</option>{companies.filter((c) => c.active).map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</Select></Field><div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setDepartmentModal(false)}>Cancel</Button><Button type="button" onClick={handleDepartmentSubmit} disabled={saving}>Create Department</Button></div></div></Modal>
+      <Modal open={departmentModal} onOpenChange={setDepartmentModal} title="Add Department"><div className="space-y-4"><Field label="Department Name" required><Input value={departmentForm.name} onChange={(e) => setDepartmentForm({ ...departmentForm, name: e.target.value })}/></Field><Field label="Department Code"><Input value={departmentForm.code} onChange={(e) => setDepartmentForm({ ...departmentForm, code: e.target.value.toUpperCase() })}/></Field><Field label="Company"><Select value={departmentForm.company} onChange={(e) => setDepartmentForm({ ...departmentForm, company: e.target.value })}><option value="">Shared / All</option>{companies.filter((c) => c.active).map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</Select></Field><Field label="Management emails (always CC)" hint="Comma-separated. CC'd on every email for this department, with the Manager and HOD from the Employee Directory."><Input value={departmentForm.managementEmails} onChange={(e) => setDepartmentForm({ ...departmentForm, managementEmails: e.target.value })} placeholder="name@onepws.com, name2@onepws.com"/></Field><div className="flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setDepartmentModal(false)}>Cancel</Button><Button type="button" onClick={handleDepartmentSubmit} disabled={saving}>Create Department</Button></div></div></Modal>
 
       <Modal open={employeeModal} onOpenChange={setEmployeeModal} title="Add Employee"><div className="grid gap-4 sm:grid-cols-2"><Field label="Employee Code" required><Input value={employeeForm.employeeCode} onChange={(e) => setEmployeeForm({ ...employeeForm, employeeCode: e.target.value })}/></Field><Field label="Full Name" required><Input value={employeeForm.name} onChange={(e) => setEmployeeForm({ ...employeeForm, name: e.target.value })}/></Field><Field label="Email"><Input type="email" value={employeeForm.email} onChange={(e) => setEmployeeForm({ ...employeeForm, email: e.target.value })}/></Field><Field label="Designation"><Input value={employeeForm.designation} onChange={(e) => setEmployeeForm({ ...employeeForm, designation: e.target.value })}/></Field><Field label="Company" required><Select value={employeeForm.company} onChange={(e) => setEmployeeForm({ ...employeeForm, company: e.target.value })}><option value="">Select company</option>{companies.filter((c) => c.active).map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}</Select></Field><Field label="Department" required><Select value={employeeForm.department} onChange={(e) => setEmployeeForm({ ...employeeForm, department: e.target.value })}><option value="">Select department</option>{departments.filter((d) => d.active).map((d) => <option key={d._id} value={d._id}>{d.name}</option>)}</Select></Field><Field label="Manager Name"><Input value={employeeForm.managerName} onChange={(e) => setEmployeeForm({ ...employeeForm, managerName: e.target.value })}/></Field><Field label="Manager Email"><Input placeholder="a@onepws.com, b@onepws.com" value={employeeForm.managerEmail} onChange={(e) => setEmployeeForm({ ...employeeForm, managerEmail: e.target.value })}/></Field><Field label="HOD Name"><Input value={employeeForm.hodName} onChange={(e) => setEmployeeForm({ ...employeeForm, hodName: e.target.value })}/></Field><Field label="HOD Email"><Input placeholder="a@onepws.com; b@onepws.com" value={employeeForm.hodEmail} onChange={(e) => setEmployeeForm({ ...employeeForm, hodEmail: e.target.value })}/></Field></div><div className="mt-5 flex justify-end gap-2"><Button type="button" variant="secondary" onClick={() => setEmployeeModal(false)}>Cancel</Button><Button type="button" onClick={handleEmployeeSubmit} disabled={saving}>Create Employee</Button></div></Modal>
 

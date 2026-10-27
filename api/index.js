@@ -1409,6 +1409,8 @@ var DepartmentSchema = new Schema9(
     name: { type: String, required: true, trim: true, index: true },
     code: { type: String, trim: true },
     company: { type: Schema9.Types.ObjectId, ref: "Company", index: true },
+    /** Management-level addresses ("a@x.com, b@x.com") CC'd on every email about this department's complaints and CAPAs. */
+    managementEmails: { type: String, trim: true, default: "" },
     active: { type: Boolean, default: true, index: true }
   },
   { timestamps: true }
@@ -2004,6 +2006,7 @@ var departmentCreateSchema = z4.object({
   name: z4.string().trim().min(2).max(120),
   code: z4.string().trim().max(24).optional().default(""),
   company: optionalObjectId,
+  managementEmails: emailListSchema,
   active: z4.boolean().default(true)
 });
 var employeeCreateSchema = z4.object({
@@ -2046,7 +2049,7 @@ function normalizeEmailList(value) {
 }
 async function resolveDepartmentCc(ref) {
   if (!ref.complaintId && !ref.capaId) return [];
-  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head"] });
+  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head", "Department Management"] });
 }
 async function resolveRecipients(options) {
   await connectDB();
@@ -2102,6 +2105,10 @@ async function resolveRecipients(options) {
         for (const mgr of normalizeEmailList(emp.managerEmail)) recipientSet.add(mgr);
       }
     }
+  }
+  if (roles.includes("Department Management") && effectiveDepartmentId && Types.ObjectId.isValid(effectiveDepartmentId)) {
+    const department = await Department.findById(effectiveDepartmentId).select("managementEmails").lean();
+    for (const email of normalizeEmailList(department?.managementEmails)) recipientSet.add(email);
   }
   if (roles.includes("Quality Head")) {
     const qualityRoles = await Role.find({

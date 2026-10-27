@@ -5,6 +5,8 @@ const DepartmentSchema = new Schema(
     name: { type: String, required: true, trim: true, index: true },
     code: { type: String, trim: true },
     company: { type: Schema.Types.ObjectId, ref: "Company", index: true },
+    /** Management-level addresses ("a@x.com, b@x.com") CC'd on every email about this department's complaints and CAPAs. */
+    managementEmails: { type: String, trim: true, default: "" },
     active: { type: Boolean, default: true, index: true }
   },
   { timestamps: true }

@@ -3,6 +3,7 @@ import { connectDB } from "../config/db";
 import { User } from "../models/User";
 import { Role } from "../models/Role";
 import { Employee } from "../models/Employee";
+import { Department } from "../models/Department";
 import { Complaint } from "../models/Complaint";
 import { Capa } from "../models/Capa";
 import { parseEmailList } from "@shared/schemas/master-data";
@@ -41,7 +42,7 @@ export async function resolveDepartmentCc(ref: {
   capaId?: string | Types.ObjectId;
 }): Promise<string[]> {
   if (!ref.complaintId && !ref.capaId) return [];
-  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head"] });
+  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head", "Department Management"] });
 }
 
 export async function resolveRecipients(options: RecipientResolutionOptions): Promise<string[]> {
@@ -122,6 +123,12 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
         for (const mgr of normalizeEmailList(emp.managerEmail)) recipientSet.add(mgr);
       }
     }
+  }
+
+  // 5b. Department-level Management addresses kept in Master Data > Departments
+  if (roles.includes("Department Management") && effectiveDepartmentId && Types.ObjectId.isValid(effectiveDepartmentId)) {
+    const department = await Department.findById(effectiveDepartmentId).select("managementEmails").lean();
+    for (const email of normalizeEmailList(department?.managementEmails)) recipientSet.add(email);
   }
 
   // 6. Resolve Quality Head

@@ -59,6 +59,7 @@ export const departmentCreateSchema = z.object({
   name: z.string().trim().min(2).max(120),
   code: z.string().trim().max(24).optional().default(""),
   company: optionalObjectId,
+  managementEmails: emailListSchema,
   active: z.boolean().default(true)
 });
 
