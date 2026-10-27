@@ -3571,9 +3571,11 @@ async function completeStage(complaintId, input, user) {
   const stage = input.stage;
   const capas = await loadDomainCapas(complaintId);
   const tatConfig = await resolveTatConfig(context.doc.company);
-  const sequenceIssues = stageSequenceGaps(context.domain, stage);
-  const contentIssues = stageGaps(context.domain, capas, stage);
-  const overdue = isStageOverdueNow(context.domain, stage, tatConfig);
+  const submittedD0 = stage === "ack" ? input.d0?.trim() : void 0;
+  const domain = submittedD0 ? { ...context.domain, d0: submittedD0 } : context.domain;
+  const sequenceIssues = stageSequenceGaps(domain, stage);
+  const contentIssues = stageGaps(domain, capas, stage);
+  const overdue = isStageOverdueNow(domain, stage, tatConfig);
   const reasons = await activeDelayReasons();
   const delayIssues = delayGaps(overdue, input.delay, reasons);
   const gaps = [...sequenceIssues, ...contentIssues, ...delayIssues];
@@ -3594,6 +3596,7 @@ async function completeStage(complaintId, input, user) {
     capa: "capaDelayReason"
   };
   context.doc.set(fieldByStage[stage], now);
+  if (submittedD0) context.doc.d0 = submittedD0;
   if (stage === "cont" && input.containmentNotes) context.doc.containmentNotes = input.containmentNotes;
   if (overdue && input.delay) {
     context.doc.set(delayFieldByStage[stage], {
@@ -6026,6 +6029,8 @@ var stageCompleteSchema = z10.object({
   stage: z10.enum(WORKFLOW_STAGES),
   notes: optionalText(2e3),
   containmentNotes: optionalText(2e3),
+  /** Immediate response (D0); lets the acknowledgement dialog record it without leaving the page. */
+  d0: optionalText(4e3),
   delay: delayInputSchema.optional()
 });
 var actionRowSchema = z10.object({

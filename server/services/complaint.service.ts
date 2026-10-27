@@ -360,9 +360,12 @@ export async function completeStage(complaintId: string, input: StageCompleteInp
   const capas = await loadDomainCapas(complaintId);
   const tatConfig = await resolveTatConfig(context.doc.company);
 
-  const sequenceIssues = stageSequenceGaps(context.domain, stage);
-  const contentIssues = stageGaps(context.domain, capas, stage);
-  const overdue = isStageOverdueNow(context.domain, stage, tatConfig);
+  // The dialog may carry the D0 response, so the gate must see it before the stage is checked.
+  const submittedD0 = stage === "ack" ? input.d0?.trim() : undefined;
+  const domain = submittedD0 ? { ...context.domain, d0: submittedD0 } : context.domain;
+  const sequenceIssues = stageSequenceGaps(domain, stage);
+  const contentIssues = stageGaps(domain, capas, stage);
+  const overdue = isStageOverdueNow(domain, stage, tatConfig);
   const reasons = await activeDelayReasons();
   const delayIssues = delayGaps(overdue, input.delay, reasons);
 
@@ -386,6 +389,7 @@ export async function completeStage(complaintId: string, input: StageCompleteInp
   };
 
   context.doc.set(fieldByStage[stage], now);
+  if (submittedD0) context.doc.d0 = submittedD0;
   if (stage === "cont" && input.containmentNotes) context.doc.containmentNotes = input.containmentNotes;
   if (overdue && input.delay) {
     context.doc.set(delayFieldByStage[stage], {

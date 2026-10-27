@@ -37,6 +37,7 @@ export function WorkflowPanel({
   const [activeStage, setActiveStage] = useState<WorkflowStage | null>(null);
   const [notes, setNotes] = useState("");
   const [containmentNotes, setContainmentNotes] = useState("");
+  const [d0, setD0] = useState("");
   const [delayCategory, setDelayCategory] = useState("");
   const [delayExplanation, setDelayExplanation] = useState("");
   const [recoveryPlan, setRecoveryPlan] = useState("");
@@ -51,7 +52,8 @@ export function WorkflowPanel({
       stage: WorkflowStage;
       notes?: string;
       containmentNotes?: string;
-      delay?: { category: string; explanation: string; recoveryPlan?: string };
+      d0?: string;
+      delay?: { category: string; explanation: string; recovery?: string };
     }
   >("POST", `/api/complaints/${complaint._id}/stage`, [
     ["complaint", complaint._id],
@@ -67,6 +69,7 @@ export function WorkflowPanel({
     setActiveStage(stageName);
     setNotes("");
     setContainmentNotes(complaint.containmentNotes ?? "");
+    setD0(complaint.d0 ?? "");
     setDelayCategory(delayReasons[0] ?? "");
     setDelayExplanation("");
     setRecoveryPlan("");
@@ -98,11 +101,12 @@ export function WorkflowPanel({
         stage: activeStage,
         notes: notes.trim() || undefined,
         containmentNotes: activeStage === "cont" ? containmentNotes.trim() || undefined : undefined,
+        d0: activeStage === "ack" ? d0.trim() || undefined : undefined,
         delay: isOverdue
           ? {
               category: delayCategory,
               explanation: delayExplanation.trim(),
-              recoveryPlan: recoveryPlan.trim() || undefined
+              recovery: recoveryPlan.trim() || undefined
             }
           : undefined
       });
@@ -270,6 +274,17 @@ export function WorkflowPanel({
                 />
               </Field>
             </div>
+          )}
+
+          {activeStage === "ack" && (
+            <Field label="Immediate response taken (D0)" required hint="Recorded on the complaint. Required to acknowledge.">
+              <Textarea
+                rows={2}
+                placeholder="What was done immediately to contain the issue or respond to the requester..."
+                value={d0}
+                onChange={(e) => setD0(e.target.value)}
+              />
+            </Field>
           )}
 
           {activeStage === "cont" && (

@@ -101,6 +101,8 @@ export const stageCompleteSchema = z.object({
   stage: z.enum(WORKFLOW_STAGES),
   notes: optionalText(2000),
   containmentNotes: optionalText(2000),
+  /** Immediate response (D0); lets the acknowledgement dialog record it without leaving the page. */
+  d0: optionalText(4000),
   delay: delayInputSchema.optional()
 });
 
