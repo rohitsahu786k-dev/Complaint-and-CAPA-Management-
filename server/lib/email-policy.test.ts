@@ -9,6 +9,13 @@ describe("email policy: company addresses only", () => {
     expect(isInternalAddress("  Service@OnePWS.com ")).toBe(true);
   });
 
+  it("allows the group companies' domains, not only onepws.com", () => {
+    expect(isInternalAddress("someone@wmspl.co.in")).toBe(true);
+    expect(isInternalAddress("someone@pwsfloor.com")).toBe(true);
+    expect(isInternalAddress("someone@wmspl.co.in.evil.com")).toBe(false);
+    expect(isInternalAddress("someone@notpwsfloor.com")).toBe(false);
+  });
+
   it("blocks customers and any other outside domain", () => {
     expect(isInternalAddress("buyer@thalesgroup.com")).toBe(false);
     expect(isInternalAddress("someone@gmail.com")).toBe(false);

@@ -2,10 +2,10 @@
  * Portal emails are internal. Complaint and CAPA emails carry customer names, defects and
  * corrective actions, so they must never reach a customer or any outside address.
  *
- * Only addresses on a company domain may receive mail. The list defaults to onepws.com and can
+ * Only addresses on a company domain may receive mail. The list defaults to the group domains (onepws.com, wmspl.co.in, pwsfloor.com) and can
  * be widened with EMAIL_ALLOWED_DOMAINS (comma-separated) if another company domain is added.
  */
-const DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
+const DEFAULT_ALLOWED_DOMAINS = ["onepws.com", "wmspl.co.in", "pwsfloor.com"];
 
 /** The shared company mailboxes copied on complaint registration and on every delayed-TAT reminder. */
 export const COMMON_CC_EMAILS = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];

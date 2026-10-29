@@ -25,6 +25,7 @@ const closing = () =>
  */
 export const SUPERSEDED_DEFAULT_SUBJECTS: Record<string, string[]> = {
   "complaint-created": ["Complaint {{complaintNumber}} Registered: {{complaintTitle}}"],
+  "summary-weekly": ["Weekly Quality Performance Report: {{period}}"],
   "effectiveness-review-due": ["{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})"]
 };
 
@@ -33,7 +34,8 @@ export const SUPERSEDED_DEFAULT_SUBJECTS: Record<string, string[]> = {
  * never rewritten by an administrator, so its subject and bodies are replaced by the current default.
  */
 export const SUPERSEDED_DEFAULT_BODY_MARKERS: Record<string, string> = {
-  "effectiveness-review-due": "The 6-month effectiveness review for"
+  "effectiveness-review-due": "The 6-month effectiveness review for",
+  "summary-weekly": "executive weekly summary"
 };
 
 export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
@@ -802,12 +804,12 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
   },
   {
     templateKey: "summary-weekly",
-    templateName: "Weekly Quality Digest",
+    templateName: "Monthly Quality Digest",
     triggerEvent: "WEEKLY_SUMMARY",
-    subject: "Weekly Quality Performance Report: {{period}}",
+    subject: "Monthly Quality Performance Report: {{period}}",
     htmlBody: wrapEmailLayout(
-      `${greeting()}${heading("Weekly Quality Performance Overview")}` +
-        `<p style="margin:0 0 12px;">Here is the executive weekly summary of quality non-conformities, corrective action velocity, and repeat issues for <strong>{{period}}</strong>.</p>` +
+      `${greeting()}${heading("Monthly Quality Performance Overview")}` +
+        `<p style="margin:0 0 12px;">Here is the executive monthly summary of quality non-conformities, corrective action velocity, and repeat issues for <strong>{{period}}</strong>.</p>` +
         infoTable(
           infoRow("Reporting Period", "{{period}}") +
             infoRow("Active Complaints", "{{totalOpen}}") +

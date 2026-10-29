@@ -26,7 +26,7 @@ var envSchema = z.object({
   SMTP_FROM_EMAIL: z.string().optional(),
   SMTP_FROM_NAME: z.string().default("ONEPWS Complaint & CAPA Portal"),
   CRON_SECRET: z.string().optional(),
-  /** Comma-separated company email domains that may receive portal emails. Defaults to onepws.com. */
+  /** Comma-separated company email domains that may receive portal emails. Defaults to onepws.com, wmspl.co.in and pwsfloor.com. */
   EMAIL_ALLOWED_DOMAINS: z.string().optional()
 });
 var cachedEnv = null;
@@ -1252,7 +1252,7 @@ function effectivenessReminderBucket(daysLeft) {
 }
 
 // server/lib/email-policy.ts
-var DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
+var DEFAULT_ALLOWED_DOMAINS = ["onepws.com", "wmspl.co.in", "pwsfloor.com"];
 var COMMON_CC_EMAILS = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
 var MANAGEMENT_ONLY_AFTER_DELAY = /* @__PURE__ */ new Set([
   // reminders before the due date: nothing is late yet
@@ -2335,10 +2335,12 @@ var greeting = () => `<p style="margin:0 0 12px;">Hello {{recipientName}},</p>`;
 var closing = () => `<p style="margin:24px 0 0;font-size:13px;color:#64748b;">Regards,<br><strong>{{companyName}}</strong> &mdash; Quality &amp; Continuous Improvement</p>`;
 var SUPERSEDED_DEFAULT_SUBJECTS = {
   "complaint-created": ["Complaint {{complaintNumber}} Registered: {{complaintTitle}}"],
+  "summary-weekly": ["Weekly Quality Performance Report: {{period}}"],
   "effectiveness-review-due": ["{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})"]
 };
 var SUPERSEDED_DEFAULT_BODY_MARKERS = {
-  "effectiveness-review-due": "The 6-month effectiveness review for"
+  "effectiveness-review-due": "The 6-month effectiveness review for",
+  "summary-weekly": "executive weekly summary"
 };
 var DEFAULT_EMAIL_TEMPLATES = [
   // ==================== AUTH ====================
@@ -2819,11 +2821,11 @@ var DEFAULT_EMAIL_TEMPLATES = [
   },
   {
     templateKey: "summary-weekly",
-    templateName: "Weekly Quality Digest",
+    templateName: "Monthly Quality Digest",
     triggerEvent: "WEEKLY_SUMMARY",
-    subject: "Weekly Quality Performance Report: {{period}}",
+    subject: "Monthly Quality Performance Report: {{period}}",
     htmlBody: wrapEmailLayout(
-      `${greeting()}${heading("Weekly Quality Performance Overview")}<p style="margin:0 0 12px;">Here is the executive weekly summary of quality non-conformities, corrective action velocity, and repeat issues for <strong>{{period}}</strong>.</p>` + infoTable(
+      `${greeting()}${heading("Monthly Quality Performance Overview")}<p style="margin:0 0 12px;">Here is the executive monthly summary of quality non-conformities, corrective action velocity, and repeat issues for <strong>{{period}}</strong>.</p>` + infoTable(
         infoRow("Reporting Period", "{{period}}") + infoRow("Active Complaints", "{{totalOpen}}") + infoRow("SLA Breaches", "{{overdueCount}}") + infoRow("Repeat Non-Conformities", "{{repeatCount}}") + infoRow("Open CAPAs", "{{openCapasCount}}")
       ) + emailButton("{{appUrl}}/reports", "Review Full Reports") + closing()
     ),
@@ -8894,90 +8896,12 @@ function getActiveStage2(c) {
   if (!c.capaAssignedAt) return "capa";
   return null;
 }
-async function processDailySummaries() {
+async function processMonthlySummaries() {
   await connectDB();
   let sent = 0;
   const now = /* @__PURE__ */ new Date();
-  const todayStr = now.toISOString().slice(0, 10);
-  const tatConfigDoc = await TATConfiguration.findOne({ company: null }).lean();
-  const tatConfig = {
-    ackHours: tatConfigDoc?.ackHours ?? DEFAULT_TAT_CONFIG.ackHours,
-    containmentDays: tatConfigDoc?.containmentDays ?? DEFAULT_TAT_CONFIG.containmentDays,
-    rcaDays: tatConfigDoc?.rcaDays ?? DEFAULT_TAT_CONFIG.rcaDays,
-    capaDays: tatConfigDoc?.capaDays ?? DEFAULT_TAT_CONFIG.capaDays,
-    d3ContainmentDays: tatConfigDoc?.d3ContainmentDays ?? DEFAULT_TAT_CONFIG.d3ContainmentDays,
-    d5CorrectiveActionDays: tatConfigDoc?.d5CorrectiveActionDays ?? DEFAULT_TAT_CONFIG.d5CorrectiveActionDays,
-    d6VerificationDays: tatConfigDoc?.d6VerificationDays ?? DEFAULT_TAT_CONFIG.d6VerificationDays,
-    d7ShortTermDays: tatConfigDoc?.d7ShortTermDays ?? DEFAULT_TAT_CONFIG.d7ShortTermDays,
-    d7LongTermDays: tatConfigDoc?.d7LongTermDays ?? DEFAULT_TAT_CONFIG.d7LongTermDays,
-    repeatWindowDays: tatConfigDoc?.repeatWindowDays ?? DEFAULT_TAT_CONFIG.repeatWindowDays,
-    dueSoonHours: tatConfigDoc?.dueSoonHours ?? DEFAULT_TAT_CONFIG.dueSoonHours
-  };
-  const companies = await Company.find({ active: true }).lean();
-  const companyList = [...companies, { _id: null, name: "ONEPWS All-Plant Division" }];
-  for (const comp of companyList) {
-    const compFilter = comp._id ? { company: comp._id } : {};
-    const [openComplaints, openCapas] = await Promise.all([
-      Complaint.find({
-        ...compFilter,
-        status: { $nin: ["Closed"] }
-      }).populate("priority", "tatMultiplier").lean(),
-      Capa.find({
-        ...compFilter,
-        status: { $nin: ["Closed", "Completed", "Under Verification"] }
-      }).lean()
-    ]);
-    let dueSoonCount = 0;
-    let overdueCount = 0;
-    for (const c of openComplaints) {
-      const stage = getActiveStage2(c);
-      if (!stage) continue;
-      const multiplier = c.priority?.tatMultiplier ?? 1;
-      const dues = computeStageDueDates({ receivedAt: new Date(c.receivedAt).toISOString(), priorityMultiplier: multiplier }, tatConfig);
-      const target = dues[stage];
-      if (target < now) {
-        overdueCount++;
-      } else if (target.getTime() - now.getTime() < 24 * 60 * 60 * 1e3) {
-        dueSoonCount++;
-      }
-    }
-    let capaOverdueCount = 0;
-    for (const capa of openCapas) {
-      if (capa.dueDate && new Date(capa.dueDate) < now) {
-        capaOverdueCount++;
-      }
-    }
-    const recipients = await resolveRecipients({
-      companyId: comp._id || void 0,
-      targetRoles: ["Quality Head", "Management", "Master Admin"]
-    });
-    if (recipients.length > 0) {
-      const dedupeKey = `DAILY_SUMMARY_${comp._id || "GLOBAL"}_${todayStr}`;
-      const res = await sendTemplatedEmail({
-        triggerEvent: "DAILY_SUMMARY",
-        recipients,
-        dedupeKey,
-        data: {
-          companyName: comp.name,
-          totalOpen: String(openComplaints.length),
-          dueSoonCount: String(dueSoonCount),
-          overdueCount: String(overdueCount),
-          openCapasCount: String(openCapas.length),
-          capaOverdueCount: String(capaOverdueCount)
-        }
-      });
-      if (res.status === "sent") sent++;
-    }
-  }
-  return { sent };
-}
-async function processWeeklySummaries() {
-  await connectDB();
-  let sent = 0;
-  const now = /* @__PURE__ */ new Date();
-  const weekNumber = Math.ceil(now.getDate() / 7);
-  const periodStr = `Week ${weekNumber}, ${now.toLocaleDateString("en-IN", { month: "short", year: "numeric" })}`;
-  const dedupeWeekKey = `${now.getFullYear()}_W${weekNumber}`;
+  const periodStr = now.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const dedupeMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const tatConfigDoc = await TATConfiguration.findOne({ company: null }).lean();
   const tatConfig = {
     ackHours: tatConfigDoc?.ackHours ?? DEFAULT_TAT_CONFIG.ackHours,
@@ -9026,7 +8950,7 @@ async function processWeeklySummaries() {
       targetRoles: ["Quality Head", "Management", "Master Admin"]
     });
     if (recipients.length > 0) {
-      const dedupeKey = `WEEKLY_SUMMARY_${comp._id || "GLOBAL"}_${dedupeWeekKey}`;
+      const dedupeKey = `MONTHLY_SUMMARY_${comp._id || "GLOBAL"}_${dedupeMonthKey}`;
       const res = await sendTemplatedEmail({
         triggerEvent: "WEEKLY_SUMMARY",
         recipients,
@@ -9064,21 +8988,9 @@ schedule("/escalations", async (_req, res) => {
   const result = await processEscalations();
   return ok(res, { job: "escalations", ...result, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 });
-schedule("/summaries", async (req, res) => {
-  const dailyResult = await processDailySummaries();
-  let weeklyResult = null;
-  const now = /* @__PURE__ */ new Date();
-  const isMonday = now.getDay() === 1;
-  const forceWeekly = req.query.weekly === "true";
-  if (isMonday || forceWeekly) {
-    weeklyResult = await processWeeklySummaries();
-  }
-  return ok(res, {
-    job: "summaries",
-    dailySent: dailyResult.sent,
-    weeklySent: weeklyResult?.sent ?? null,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  });
+schedule("/summaries", async (_req, res) => {
+  const result = await processMonthlySummaries();
+  return ok(res, { job: "summaries", sent: result.sent, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
 });
 
 // server/routes/effectiveness.routes.ts

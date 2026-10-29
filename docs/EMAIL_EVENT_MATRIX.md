@@ -40,5 +40,5 @@ All emails pass through the centralized `sendTemplatedEmail()` engine with stric
 | **SIGNATURE: COMPLAINT_REVIEWED** | Reviewed by signed | `complaint-reviewed` | Complaint Approver candidates | Complaint Owner, Preparer | — | 1 per review sign | Complaint | VERIFIED |
 | **SIGNATURE: COMPLAINT_APPROVED** | Approved by signed | `complaint-approved` | Complaint Owner, Coordinator | Quality Head, Management | — | 1 per approval sign | Complaint | VERIFIED |
 | **SIGNATURE: SIGNATURE_REVOKED** | Signature revoked by Master Admin | `signature-revoked` | Signer whose signature was revoked | Complaint Owner, Quality Head | — | 1 per revoke action | Complaint | VERIFIED |
-| **SUMMARY: DAILY_SUMMARY** | Daily cron digest trigger | `daily-summary` | Department Heads, Quality Head, Admins | — | — | Digest key (`summary:daily:{companyId}:{date}`) | System | VERIFIED |
-| **SUMMARY: WEEKLY_SUMMARY** | Weekly cron digest trigger | `weekly-summary` | Executive Management, Quality Head | — | — | Digest key (`summary:weekly:{companyId}:{week}`) | System | VERIFIED |
+| **SUMMARY: DAILY_SUMMARY** | No longer sent (replaced by the monthly digest) | `daily-summary` | Department Heads, Quality Head, Admins | — | — | Digest key (`summary:daily:{companyId}:{date}`) | System | VERIFIED |
+| **SUMMARY: WEEKLY_SUMMARY** | Monthly digest (1st of each month; key kept for history) | `weekly-summary` | Executive Management, Quality Head | — | — | Digest key (`MONTHLY_SUMMARY_{companyId}_{YYYY-MM}`) | System | VERIFIED |

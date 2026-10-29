@@ -20,7 +20,7 @@
     },
     {
       "path": "/api/cron/summaries",
-      "schedule": "30 17 * * 1-5"
+      "schedule": "30 17 1 * *"
     }
   ],
   "rewrites": [

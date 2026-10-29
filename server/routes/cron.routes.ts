@@ -4,7 +4,7 @@ import { asyncHandler } from "../utils/async-handler";
 import { ok } from "../utils/http";
 import { processReminders } from "../services/reminder.service";
 import { processEscalations } from "../services/escalation.service";
-import { processDailySummaries, processWeeklySummaries } from "../services/summary.service";
+import { processMonthlySummaries } from "../services/summary.service";
 
 export const cronRouter = Router();
 
@@ -41,25 +41,9 @@ schedule("/escalations", async (_req, res) => {
 });
 
 /**
- * Daily & Weekly Management summary digests
+ * Monthly Management summary digest
  */
-schedule("/summaries", async (req, res) => {
-  const dailyResult = await processDailySummaries();
-
-  // Check if weekly summary is also requested (e.g. on Mondays)
-  let weeklyResult = null;
-  const now = new Date();
-  const isMonday = now.getDay() === 1;
-  const forceWeekly = req.query.weekly === "true";
-
-  if (isMonday || forceWeekly) {
-    weeklyResult = await processWeeklySummaries();
-  }
-
-  return ok(res, {
-    job: "summaries",
-    dailySent: dailyResult.sent,
-    weeklySent: weeklyResult?.sent ?? null,
-    timestamp: new Date().toISOString()
-  });
+schedule("/summaries", async (_req, res) => {
+  const result = await processMonthlySummaries();
+  return ok(res, { job: "summaries", sent: result.sent, timestamp: new Date().toISOString() });
 });

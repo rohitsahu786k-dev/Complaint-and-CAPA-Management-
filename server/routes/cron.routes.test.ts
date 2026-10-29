@@ -4,12 +4,11 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const processReminders = vi.fn(async () => ({ complaintsChecked: 1 }));
 const processEscalations = vi.fn(async () => ({ complaintsChecked: 1 }));
-const processDailySummaries = vi.fn(async () => ({ sent: 0 }));
-const processWeeklySummaries = vi.fn(async () => ({ sent: 0 }));
+const processMonthlySummaries = vi.fn(async () => ({ sent: 0 }));
 
 vi.mock("../services/reminder.service", () => ({ processReminders }));
 vi.mock("../services/escalation.service", () => ({ processEscalations }));
-vi.mock("../services/summary.service", () => ({ processDailySummaries, processWeeklySummaries }));
+vi.mock("../services/summary.service", () => ({ processMonthlySummaries }));
 
 const SECRET = "test-cron-secret-0123456789abcdef";
 let server: ReturnType<ReturnType<typeof express>["listen"]>;

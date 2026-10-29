@@ -22,7 +22,7 @@ const envSchema = z.object({
   SMTP_FROM_EMAIL: z.string().optional(),
   SMTP_FROM_NAME: z.string().default("ONEPWS Complaint & CAPA Portal"),
   CRON_SECRET: z.string().optional(),
-  /** Comma-separated company email domains that may receive portal emails. Defaults to onepws.com. */
+  /** Comma-separated company email domains that may receive portal emails. Defaults to onepws.com, wmspl.co.in and pwsfloor.com. */
   EMAIL_ALLOWED_DOMAINS: z.string().optional()
 });
 
