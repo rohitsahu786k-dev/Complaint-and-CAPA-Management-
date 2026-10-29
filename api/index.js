@@ -8777,39 +8777,37 @@ async function processWeeklySummaries() {
 // server/routes/cron.routes.ts
 var cronRouter = Router14();
 cronRouter.use(requireCronAuth);
-cronRouter.post(
-  "/reminders",
-  asyncHandler(async (_req, res) => {
-    const result = await processReminders();
-    return ok(res, { job: "reminders", ...result, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-  })
-);
-cronRouter.post(
-  "/escalations",
-  asyncHandler(async (_req, res) => {
-    const result = await processEscalations();
-    return ok(res, { job: "escalations", ...result, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
-  })
-);
-cronRouter.post(
-  "/summaries",
-  asyncHandler(async (req, res) => {
-    const dailyResult = await processDailySummaries();
-    let weeklyResult = null;
-    const now = /* @__PURE__ */ new Date();
-    const isMonday = now.getDay() === 1;
-    const forceWeekly = req.query.weekly === "true";
-    if (isMonday || forceWeekly) {
-      weeklyResult = await processWeeklySummaries();
-    }
-    return ok(res, {
-      job: "summaries",
-      dailySent: dailyResult.sent,
-      weeklySent: weeklyResult?.sent ?? null,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString()
-    });
-  })
-);
+function schedule(path, handler2) {
+  const wrapped = asyncHandler(async (req, res) => {
+    await handler2(req, res);
+  });
+  cronRouter.get(path, wrapped);
+  cronRouter.post(path, wrapped);
+}
+schedule("/reminders", async (_req, res) => {
+  const result = await processReminders();
+  return ok(res, { job: "reminders", ...result, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+});
+schedule("/escalations", async (_req, res) => {
+  const result = await processEscalations();
+  return ok(res, { job: "escalations", ...result, timestamp: (/* @__PURE__ */ new Date()).toISOString() });
+});
+schedule("/summaries", async (req, res) => {
+  const dailyResult = await processDailySummaries();
+  let weeklyResult = null;
+  const now = /* @__PURE__ */ new Date();
+  const isMonday = now.getDay() === 1;
+  const forceWeekly = req.query.weekly === "true";
+  if (isMonday || forceWeekly) {
+    weeklyResult = await processWeeklySummaries();
+  }
+  return ok(res, {
+    job: "summaries",
+    dailySent: dailyResult.sent,
+    weeklySent: weeklyResult?.sent ?? null,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  });
+});
 
 // server/routes/effectiveness.routes.ts
 import { Router as Router15 } from "express";
