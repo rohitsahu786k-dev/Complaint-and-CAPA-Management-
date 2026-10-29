@@ -399,29 +399,6 @@ function errorHandler(error, _req, res, _next) {
 import { Router } from "express";
 import { z as z5 } from "zod";
 
-// shared/schemas/common.ts
-import { z as z2 } from "zod";
-var objectIdSchema = z2.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
-var listQuerySchema = z2.object({
-  page: z2.coerce.number().int().min(1).default(1),
-  pageSize: z2.coerce.number().int().min(1).max(100).default(25),
-  sort: z2.string().trim().max(60).optional(),
-  order: z2.enum(["asc", "desc"]).default("desc"),
-  search: z2.string().trim().max(160).optional()
-});
-function paginate(items, total, query) {
-  return {
-    items,
-    page: query.page,
-    pageSize: query.pageSize,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / query.pageSize))
-  };
-}
-
-// server/services/analytics.service.ts
-import { Types as Types5 } from "mongoose";
-
 // shared/constants/domain.ts
 var COMPLAINT_TYPES = ["External", "Internal"];
 var COMPLAINT_STATUSES = [
@@ -579,6 +556,7 @@ var EMAIL_TRIGGER_EVENTS = [
   "TAT_DUE_SOON",
   "TAT_OVERDUE",
   "TAT_ESCALATION",
+  "TAT_DELAY_DAILY",
   // CAPA
   "CAPA_ASSIGNED",
   "CAPA_REASSIGNED",
@@ -600,7 +578,31 @@ var EMAIL_TRIGGER_EVENTS = [
   "DAILY_SUMMARY",
   "WEEKLY_SUMMARY"
 ];
+var MANAGEMENT_ESCALATION_DAYS = 10;
 var EFFECTIVENESS_REVIEW_MONTHS = 6;
+
+// shared/schemas/common.ts
+import { z as z2 } from "zod";
+var objectIdSchema = z2.string().regex(/^[a-f\d]{24}$/i, "Invalid id");
+var listQuerySchema = z2.object({
+  page: z2.coerce.number().int().min(1).default(1),
+  pageSize: z2.coerce.number().int().min(1).max(100).default(25),
+  sort: z2.string().trim().max(60).optional(),
+  order: z2.enum(["asc", "desc"]).default("desc"),
+  search: z2.string().trim().max(160).optional()
+});
+function paginate(items, total, query) {
+  return {
+    items,
+    page: query.page,
+    pageSize: query.pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / query.pageSize))
+  };
+}
+
+// server/services/analytics.service.ts
+import { Types as Types5 } from "mongoose";
 
 // server/domain/rbac.ts
 function hasPermission(actor, permission) {
@@ -1249,6 +1251,29 @@ function effectivenessReminderBucket(daysLeft) {
   return milestone === void 0 ? null : { key: `due-${milestone}`, overdue: false };
 }
 
+// server/lib/email-policy.ts
+var DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
+var COMMON_CC_EMAILS = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
+function allowedEmailDomains() {
+  const configured = (process.env.EMAIL_ALLOWED_DOMAINS ?? "").split(/[,;\s]+/).map((domain) => domain.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
+  return configured.length > 0 ? configured : DEFAULT_ALLOWED_DOMAINS;
+}
+function isInternalAddress(email) {
+  const address = email.trim().toLowerCase();
+  if (!/^[^\s@<>,;"']+@[^\s@<>,;"']+$/.test(address)) return false;
+  return allowedEmailDomains().includes(address.slice(address.lastIndexOf("@") + 1));
+}
+function splitByEmailPolicy(addresses) {
+  const allowed = [];
+  const blocked = [];
+  for (const address of addresses ?? []) {
+    if (!address || !address.trim()) continue;
+    (isInternalAddress(address) ? allowed : blocked).push(address);
+  }
+  return { allowed, blocked };
+}
+var EXTERNAL_ADDRESS_MESSAGE = () => `Only company addresses (${allowedEmailDomains().map((domain) => `@${domain}`).join(", ")}) can receive portal emails`;
+
 // server/domain/repeat.ts
 function matchesRepeatRule(candidate, existing, cutoff) {
   if (existing.id === candidate.id) return null;
@@ -1647,10 +1672,10 @@ var Notification = mongoose12.models.Notification || mongoose12.model("Notificat
 
 // server/services/notification.service.ts
 async function notify(input) {
-  const unique = [...new Set(input.recipients.filter(Boolean).map(String))];
-  if (unique.length === 0) return [];
+  const unique2 = [...new Set(input.recipients.filter(Boolean).map(String))];
+  if (unique2.length === 0) return [];
   return Notification.insertMany(
-    unique.map((recipient) => ({
+    unique2.map((recipient) => ({
       recipient,
       message: input.message,
       category: input.category ?? "system",
@@ -1894,28 +1919,6 @@ function getSampleVariables(triggerEvent) {
   return complaintVars;
 }
 
-// server/lib/email-policy.ts
-var DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
-function allowedEmailDomains() {
-  const configured = (process.env.EMAIL_ALLOWED_DOMAINS ?? "").split(/[,;\s]+/).map((domain) => domain.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
-  return configured.length > 0 ? configured : DEFAULT_ALLOWED_DOMAINS;
-}
-function isInternalAddress(email) {
-  const address = email.trim().toLowerCase();
-  if (!/^[^\s@<>,;"']+@[^\s@<>,;"']+$/.test(address)) return false;
-  return allowedEmailDomains().includes(address.slice(address.lastIndexOf("@") + 1));
-}
-function splitByEmailPolicy(addresses) {
-  const allowed = [];
-  const blocked = [];
-  for (const address of addresses ?? []) {
-    if (!address || !address.trim()) continue;
-    (isInternalAddress(address) ? allowed : blocked).push(address);
-  }
-  return { allowed, blocked };
-}
-var EXTERNAL_ADDRESS_MESSAGE = () => `Only company addresses (${allowedEmailDomains().map((domain) => `@${domain}`).join(", ")}) can receive portal emails`;
-
 // server/lib/mailer.ts
 import nodemailer from "nodemailer";
 function isSmtpConfigured() {
@@ -2129,7 +2132,11 @@ function normalizeEmailList(value) {
 }
 async function resolveDepartmentCc(ref) {
   if (!ref.complaintId && !ref.capaId) return [];
-  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head", "Department Management"] });
+  const { excludeManagement, ...target } = ref;
+  return resolveRecipients({
+    ...target,
+    targetRoles: excludeManagement ? ["Manager", "Department Head"] : ["Manager", "Department Head", "Department Management"]
+  });
 }
 async function resolveRecipientChainCc(recipients) {
   const addresses = Array.from(new Set(recipients.map((entry) => normalizeEmail(entry)).filter((entry) => Boolean(entry))));
@@ -2533,6 +2540,38 @@ var DEFAULT_EMAIL_TEMPLATES = [
     ),
     textBody: "Hello {{recipientName}},\n\nOVERDUE NOTICE: Complaint {{complaintNumber}} is overdue for stage {{stage}}.\n\nDue Date: {{dueDate}}\nOverdue Duration: {{overdueHours}} hours\nDept: {{departmentName}}\nOwner: {{ownerName}}\n\nResolve: {{actionUrl}}\n\nRegards,\n{{companyName}}",
     supportedVariables: ["recipientName", "complaintNumber", "stage", "dueDate", "overdueHours", "departmentName", "ownerName", "actionUrl", "companyName"]
+  },
+  {
+    templateKey: "tat-delay-daily",
+    templateName: "TAT Delay (Daily Reminder)",
+    triggerEvent: "TAT_DELAY_DAILY",
+    subject: "{{statusLabel}}: Complaint {{complaintNumber}} TAT delayed {{maxDaysLate}}",
+    htmlBody: wrapEmailLayout(
+      `${greeting()}${heading("Complaint TAT Delayed")}<p style="margin:0 0 12px;">Complaint <strong>{{complaintNumber}}</strong> has <strong>{{delayedCount}}</strong> delayed milestone(s), the longest <strong>{{maxDaysLate}}</strong> late. Please complete the pending stage(s) in the portal. You will get this reminder every day until they are completed.</p>` + infoTable(
+        infoRow("Acknowledgement", "{{ackStatus}}") + infoRow("Containment", "{{contStatus}}") + infoRow("RCA Completion", "{{rcaStatus}}") + infoRow("CAPA Assignment", "{{capaStatus}}")
+      ) + infoTable(
+        infoRow("Complaint No.", "{{complaintNumber}}") + infoRow("Customer / Issue", "{{customerName}}") + infoRow("Responsible Dept.", "{{departmentName}}") + infoRow("Owner", "{{ownerName}}") + infoRow("Priority", "{{priority}}")
+      ) + `<p style="margin:0 0 4px;font-size:12px;color:#64748B;">{{escalationNote}}</p>` + emailButton("{{actionUrl}}", "Open Complaint") + closing()
+    ),
+    textBody: "Hello {{recipientName}},\n\n{{statusLabel}}: Complaint {{complaintNumber}} has {{delayedCount}} delayed milestone(s), the longest {{maxDaysLate}} late. You will get this reminder every day until they are completed.\n\nAcknowledgement: {{ackStatus}}\nContainment: {{contStatus}}\nRCA Completion: {{rcaStatus}}\nCAPA Assignment: {{capaStatus}}\n\nCustomer / Issue: {{customerName}}\nDept: {{departmentName}}\nOwner: {{ownerName}}\nPriority: {{priority}}\n\n{{escalationNote}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
+    supportedVariables: [
+      "recipientName",
+      "statusLabel",
+      "complaintNumber",
+      "delayedCount",
+      "maxDaysLate",
+      "ackStatus",
+      "contStatus",
+      "rcaStatus",
+      "capaStatus",
+      "customerName",
+      "departmentName",
+      "ownerName",
+      "priority",
+      "escalationNote",
+      "actionUrl",
+      "companyName"
+    ]
   },
   {
     templateKey: "tat-escalation",
@@ -3157,7 +3196,8 @@ async function sendTemplatedEmail(input) {
   }
   const departmentCc = await resolveDepartmentCc({
     complaintId: input.relatedComplaintId,
-    capaId: input.relatedCapaId
+    capaId: input.relatedCapaId,
+    excludeManagement: input.excludeManagement
   }).catch(() => []);
   const recipientChainCc = input.relatedComplaintId || input.relatedCapaId ? await resolveRecipientChainCc(cleanRecipients).catch(() => []) : [];
   const ccList = Array.from(
@@ -3393,7 +3433,7 @@ async function writeAudit(input) {
 }
 
 // server/services/complaint.service.ts
-var COMPLAINT_CREATED_FIXED_CC = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
+var COMPLAINT_CREATED_FIXED_CC = COMMON_CC_EMAILS;
 function gapsToIssues(gaps) {
   return gaps.map((gap) => ({ field: gap.field, section: gap.section, message: gap.hint ? `${gap.field} \u2014 ${gap.hint}` : gap.field }));
 }
@@ -4117,7 +4157,7 @@ async function deleteComplaint(complaintId, confirmation, user) {
 }
 
 // server/services/analytics.service.ts
-var COMPLAINT_PROJECTION = "number company type status receivedAt closedAt priority owner responsibleDept customer product category rootCauseCategory d4Occurrence isRepeat repeatOf acknowledgedAt containmentAt rcaAt capaAssignedAt ackDelayReason contDelayReason rcaDelayReason capaDelayReason";
+var COMPLAINT_PROJECTION = "number company type status receivedAt closedAt priority owner ownerEmployee responsibleDept customer product category rootCauseCategory d4Occurrence isRepeat repeatOf acknowledgedAt containmentAt rcaAt capaAssignedAt ackDelayReason contDelayReason rcaDelayReason capaDelayReason";
 function endOfDay(date2) {
   const next = new Date(date2);
   next.setHours(23, 59, 59, 999);
@@ -4204,14 +4244,42 @@ function stageStates(rows, multipliers, config, now) {
     return { row, plan };
   });
 }
-async function dashboardAnalytics(user, companyId, range) {
+function complaintFilter(dateFilter, type) {
+  return { ...Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}, ...type ? { type } : {} };
+}
+async function ownerSummary(states) {
+  const ownerIds = [...new Set(states.map(({ row }) => row.owner).filter(Boolean).map(String))];
+  const employeeIds = [...new Set(states.map(({ row }) => row.ownerEmployee).filter(Boolean).map(String))];
+  const [users, employees] = await Promise.all([
+    ownerIds.length ? User.find({ _id: { $in: ownerIds } }).select("name").lean() : [],
+    employeeIds.length ? Employee.find({ _id: { $in: employeeIds } }).select("name").lean() : []
+  ]);
+  const names = new Map([...users, ...employees].map((entry) => [String(entry._id), entry.name]));
+  const people = /* @__PURE__ */ new Map();
+  for (const { row, plan } of states) {
+    const owner = row.ownerEmployee && names.get(String(row.ownerEmployee)) || row.owner && names.get(String(row.owner)) || "Unassigned";
+    const entry = people.get(owner) ?? { owner, total: 0, open: 0, delayed: 0, inProcess: 0, closed: 0 };
+    entry.total += 1;
+    if (row.status === "Closed") {
+      entry.closed += 1;
+    } else {
+      entry.open += 1;
+      if (plan.some((stage) => stage.overdue)) entry.delayed += 1;
+      if (row.acknowledgedAt) entry.inProcess += 1;
+    }
+    people.set(owner, entry);
+  }
+  return [...people.values()].map((entry) => ({
+    ...entry,
+    closurePercent: percent(entry.closed, entry.total),
+    status: entry.delayed === 0 ? "Compliant" : "Non-Compliant"
+  })).sort((a, b) => b.delayed - a.delayed || b.total - a.total || a.owner.localeCompare(b.owner));
+}
+async function dashboardAnalytics(user, companyId, range, type) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
   const dateFilter = rangeFilter(range);
-  const [rows, multipliers] = await Promise.all([
-    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
-    priorityMultipliers()
-  ]);
+  const [rows, multipliers] = await Promise.all([loadComplaints(scope, complaintFilter(dateFilter, type)), priorityMultipliers()]);
   const now = /* @__PURE__ */ new Date();
   const states = stageStates(rows, multipliers, config, now);
   const total = rows.length;
@@ -4231,7 +4299,12 @@ async function dashboardAnalytics(user, companyId, range) {
   );
   const closureDurations = rows.filter((row) => row.closedAt).map((row) => (new Date(row.closedAt).getTime() - new Date(row.receivedAt).getTime()) / 864e5);
   const averageClosureDays = closureDurations.length === 0 ? 0 : Math.round(closureDurations.reduce((sum, days) => sum + days, 0) / closureDurations.length * 10) / 10;
-  const capaRows = await Capa.find({ ...scope.filter, ...Object.keys(dateFilter).length ? { createdAt: dateFilter } : {} }).select("status dueDate effectiveness completedAt owner").lean();
+  const typedComplaintIds = type ? (await Complaint.find({ ...scope.filter, type }).select("_id").lean()).map((entry) => entry._id) : null;
+  const capaRows = await Capa.find({
+    ...scope.filter,
+    ...Object.keys(dateFilter).length ? { createdAt: dateFilter } : {},
+    ...typedComplaintIds ? { complaint: { $in: typedComplaintIds } } : {}
+  }).select("status dueDate effectiveness completedAt owner").lean();
   const capaClosed = capaRows.filter((capa) => capa.status === "Closed" || capa.status === "Completed").length;
   const capaOverdue = capaRows.filter(
     (capa) => capa.status !== "Closed" && capa.status !== "Completed" && capa.dueDate && new Date(capa.dueDate) < now
@@ -4299,17 +4372,15 @@ async function dashboardAnalytics(user, companyId, range) {
     aging,
     rootCauseCategories: countBy(rows, (row) => row.rootCauseCategory),
     categories: countBy(rows, (row) => row.category).slice(0, 10),
+    ownerSummary: await ownerSummary(states),
     recent
   };
 }
-async function tatAnalytics(user, companyId, range) {
+async function tatAnalytics(user, companyId, range, type) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
   const dateFilter = rangeFilter(range);
-  const [rows, multipliers] = await Promise.all([
-    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
-    priorityMultipliers()
-  ]);
+  const [rows, multipliers] = await Promise.all([loadComplaints(scope, complaintFilter(dateFilter, type)), priorityMultipliers()]);
   const now = /* @__PURE__ */ new Date();
   const states = stageStates(rows, multipliers, config, now);
   const stages = WORKFLOW_STAGES.map((stage) => {
@@ -4992,7 +5063,9 @@ function asyncHandler(fn) {
 var scopeQuery = z5.object({
   company: objectIdSchema.optional(),
   startDate: z5.coerce.date().optional(),
-  endDate: z5.coerce.date().optional()
+  endDate: z5.coerce.date().optional(),
+  /** Show only Internal or only External complaints; omitted means both. */
+  type: z5.enum(COMPLAINT_TYPES).optional()
 });
 var reportQuery = scopeQuery.extend({ from: z5.coerce.date().optional(), to: z5.coerce.date().optional() });
 var analyticsRouter = Router();
@@ -5002,7 +5075,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await dashboardAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
+    return ok(res, await dashboardAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }, query.type));
   })
 );
 analyticsRouter.get(
@@ -5010,7 +5083,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await tatAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
+    return ok(res, await tatAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }, query.type));
   })
 );
 analyticsRouter.get(
@@ -8268,26 +8341,38 @@ var shareReportSchema = z18.object({
   notes: z18.string().optional()
 });
 
-// server/services/escalation.service.ts
-function getActiveStage(c) {
-  if (!c.acknowledgedAt) return "ack";
-  if (!c.containmentAt) return "cont";
-  if (!c.rcaAt) return "rca";
-  if (!c.capaAssignedAt) return "capa";
-  return null;
+// server/domain/tat-delay.ts
+var HOUR_MS2 = 60 * 60 * 1e3;
+function stageDelays(dues, completed, now) {
+  return WORKFLOW_STAGES.map((stage) => {
+    const completedAt = completed[stage] ? new Date(completed[stage]) : null;
+    const lateMs = now.getTime() - dues[stage].getTime();
+    const delayed = !completedAt && lateMs > 0;
+    return { stage, completedAt, dueAt: dues[stage], overdueHours: delayed ? Math.floor(lateMs / HOUR_MS2) : 0, delayed };
+  });
 }
+function needsManagementEscalation(maxOverdueHours) {
+  return maxOverdueHours > MANAGEMENT_ESCALATION_DAYS * 24;
+}
+var dateText = (date2) => date2.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+function lateText(hours) {
+  const days = Math.floor(hours / 24);
+  return days < 1 ? "less than a day" : `${days} day${days === 1 ? "" : "s"}`;
+}
+function stageStatusText(entry) {
+  if (entry.completedAt) return `Completed on ${dateText(entry.completedAt)}`;
+  return entry.delayed ? `DELAYED by ${lateText(entry.overdueHours)} (was due ${dateText(entry.dueAt)})` : `Due ${dateText(entry.dueAt)}`;
+}
+
+// server/services/escalation.service.ts
+var unique = (emails) => Array.from(new Set(emails.map((email) => email.trim().toLowerCase()).filter(Boolean)));
 async function processEscalations() {
   await connectDB();
   let complaintsEscalated = 0;
   let capasEscalated = 0;
   const now = /* @__PURE__ */ new Date();
   const todayStr = now.toISOString().slice(0, 10);
-  const [escalationConfig, tatConfigDoc] = await Promise.all([
-    EscalationConfiguration.findOne({ company: null, active: true }).lean(),
-    TATConfiguration.findOne({ company: null }).lean()
-  ]);
-  const levels = escalationConfig?.levels && escalationConfig.levels.length > 0 ? escalationConfig.levels : [...DEFAULT_ESCALATION_LEVELS];
-  const sortedLevels = [...levels].sort((a, b) => a.triggerHoursOverdue - b.triggerHoursOverdue);
+  const tatConfigDoc = await TATConfiguration.findOne({ company: null }).lean();
   const tatConfig = {
     ackHours: tatConfigDoc?.ackHours ?? DEFAULT_TAT_CONFIG.ackHours,
     containmentDays: tatConfigDoc?.containmentDays ?? DEFAULT_TAT_CONFIG.containmentDays,
@@ -8301,61 +8386,66 @@ async function processEscalations() {
     repeatWindowDays: tatConfigDoc?.repeatWindowDays ?? DEFAULT_TAT_CONFIG.repeatWindowDays,
     dueSoonHours: tatConfigDoc?.dueSoonHours ?? DEFAULT_TAT_CONFIG.dueSoonHours
   };
-  const openComplaints = await Complaint.find({
-    status: { $nin: ["Closed"] }
-  }).populate("owner", "name email").populate("responsibleDept", "name").populate("priority", "name tatMultiplier").lean();
+  const openComplaints = await Complaint.find({ status: { $nin: ["Closed"] } }).populate("owner", "name email").populate("ownerEmployee", "name email").populate("responsibleDept", "name").populate("priority", "name tatMultiplier").lean();
   for (const complaint of openComplaints) {
-    const stage = getActiveStage(complaint);
-    if (!stage) continue;
     const multiplier = complaint.priority?.tatMultiplier ?? 1;
-    const stageDues = computeStageDueDates({ receivedAt: new Date(complaint.receivedAt).toISOString(), priorityMultiplier: multiplier }, tatConfig);
-    const targetDate = stageDues[stage];
-    if (now <= targetDate) {
-      continue;
-    }
-    const overdueDurationMs = now.getTime() - targetDate.getTime();
-    const overdueHours = Math.floor(overdueDurationMs / (1e3 * 60 * 60));
-    let matchedLevel = null;
-    for (const lvl of sortedLevels) {
-      if (overdueHours >= lvl.triggerHoursOverdue) {
-        matchedLevel = lvl;
+    const dues = computeStageDueDates({ receivedAt: new Date(complaint.receivedAt).toISOString(), priorityMultiplier: multiplier }, tatConfig);
+    const delays = stageDelays(
+      dues,
+      { ack: complaint.acknowledgedAt, cont: complaint.containmentAt, rca: complaint.rcaAt, capa: complaint.capaAssignedAt },
+      now
+    );
+    const delayed = delays.filter((entry) => entry.delayed);
+    if (delayed.length === 0) continue;
+    const maxOverdueHours = Math.max(...delayed.map((entry) => entry.overdueHours));
+    const includeManagement = needsManagementEscalation(maxOverdueHours);
+    const ownerEmployee = complaint.ownerEmployee;
+    let to = await resolveRecipients({
+      complaintId: complaint._id,
+      targetRoles: ["Complaint Owner"],
+      explicitEmails: ownerEmployee?.email ? [ownerEmployee.email] : void 0
+    });
+    if (delayed.some((entry) => entry.stage === "capa")) {
+      const openCapas = await Capa.find({ complaint: complaint._id, status: { $nin: ["Closed", "Completed"] } }).select("_id").lean();
+      for (const capa of openCapas) {
+        to = to.concat(await resolveRecipients({ capaId: capa._id, targetRoles: ["CAPA Owner"] }));
       }
     }
-    if (matchedLevel) {
-      const dedupeKey = `ESCALATION_CMP_${complaint._id}_${stage}_L${matchedLevel.level}_${todayStr}`;
-      let targetRoles = ["Complaint Owner"];
-      if (matchedLevel.level === 2) {
-        targetRoles = ["Complaint Owner", "Department Head"];
-      } else if (matchedLevel.level === 3) {
-        targetRoles = ["Complaint Owner", "Department Head", "Quality Head"];
-      } else if (matchedLevel.level >= 4) {
-        targetRoles = ["Complaint Owner", "Department Head", "Quality Head", "Management"];
-      }
-      const recipients = await resolveRecipients({
-        complaintId: complaint._id,
-        targetRoles
-      });
-      if (recipients.length > 0) {
-        const res = await sendTemplatedEmail({
-          triggerEvent: "TAT_ESCALATION",
-          recipients,
-          dedupeKey,
-          relatedComplaintId: complaint._id,
-          data: {
-            complaintNumber: complaint.number,
-            stage: stage.toUpperCase(),
-            escalationLevel: `Level ${matchedLevel.level} (${matchedLevel.name})`,
-            dueDate: targetDate.toLocaleDateString("en-IN"),
-            overdueHours: String(overdueHours),
-            departmentName: complaint.responsibleDept?.name || "General",
-            ownerName: complaint.owner?.name || "Assigned Owner",
-            priority: complaint.priority?.name || "Standard",
-            actionUrl: `/complaints/${complaint._id}`
-          }
-        });
-        if (res.status === "sent") complaintsEscalated++;
-      }
+    let cc = [...COMMON_CC_EMAILS];
+    if (includeManagement) {
+      cc = cc.concat(await resolveRecipients({ complaintId: complaint._id, targetRoles: ["Management"] }));
     }
+    to = unique(to);
+    if (to.length === 0) {
+      to = [...COMMON_CC_EMAILS];
+      cc = cc.filter((email) => !COMMON_CC_EMAILS.includes(email));
+    }
+    const status = Object.fromEntries(delays.map((entry) => [entry.stage, stageStatusText(entry)]));
+    const res = await sendTemplatedEmail({
+      triggerEvent: "TAT_DELAY_DAILY",
+      recipients: to,
+      cc: unique(cc),
+      excludeManagement: !includeManagement,
+      dedupeKey: `TATDELAY_${complaint._id}_${todayStr}`,
+      relatedComplaintId: complaint._id,
+      data: {
+        statusLabel: includeManagement ? "ESCALATED" : "Delayed",
+        complaintNumber: complaint.number,
+        delayedCount: String(delayed.length),
+        maxDaysLate: lateText(maxOverdueHours),
+        ackStatus: status.ack,
+        contStatus: status.cont,
+        rcaStatus: status.rca,
+        capaStatus: status.capa,
+        customerName: complaint.customer || complaint.product || complaint.description?.slice(0, 80) || "Internal Issue",
+        departmentName: complaint.responsibleDept?.name || "General",
+        ownerName: ownerEmployee?.name || complaint.owner?.name || "Assigned Owner",
+        priority: complaint.priority?.name || "Standard",
+        escalationNote: includeManagement ? `Management has been copied because a stage is more than ${MANAGEMENT_ESCALATION_DAYS} days late.` : `Management is copied only when a stage is more than ${MANAGEMENT_ESCALATION_DAYS} days late.`,
+        actionUrl: `/complaints/${complaint._id}`
+      }
+    });
+    if (res.status === "sent") complaintsEscalated++;
   }
   const overdueCapas = await Capa.find({
     status: { $nin: ["Closed", "Completed", "Under Verification"] },
@@ -8365,14 +8455,18 @@ async function processEscalations() {
     if (!capa.dueDate) continue;
     const targetDate = new Date(capa.dueDate);
     const dedupeKey = `ESCALATION_CAPA_${capa._id}_${todayStr}`;
+    const includeManagement = needsManagementEscalation(Math.floor((now.getTime() - targetDate.getTime()) / 36e5));
     const recipients = await resolveRecipients({
       capaId: capa._id,
       targetRoles: ["CAPA Owner", "Department Head"]
     });
+    const cc = includeManagement ? await resolveRecipients({ capaId: capa._id, targetRoles: ["Management"] }) : [];
     if (recipients.length > 0) {
       const res = await sendTemplatedEmail({
         triggerEvent: "CAPA_OVERDUE",
         recipients,
+        cc,
+        excludeManagement: !includeManagement,
         dedupeKey,
         relatedCapaId: capa._id,
         data: {
@@ -8625,7 +8719,7 @@ async function processEffectivenessReviewReminders(now) {
   }
   return sent;
 }
-function getActiveStage2(c) {
+function getActiveStage(c) {
   if (!c.acknowledgedAt) return "ack";
   if (!c.containmentAt) return "cont";
   if (!c.rcaAt) return "rca";
@@ -8660,7 +8754,7 @@ async function processReminders() {
     status: { $nin: ["Closed"] }
   }).populate("owner", "name email").populate("responsibleDept", "name").populate("priority", "name tatMultiplier").lean();
   for (const complaint of openComplaints) {
-    const stage = getActiveStage2(complaint);
+    const stage = getActiveStage(complaint);
     if (!stage) continue;
     const multiplier = complaint.priority?.tatMultiplier ?? 1;
     const stageDues = computeStageDueDates({ receivedAt: new Date(complaint.receivedAt).toISOString(), priorityMultiplier: multiplier }, tatConfig);
@@ -8766,7 +8860,7 @@ async function processReminders() {
 }
 
 // server/services/summary.service.ts
-function getActiveStage3(c) {
+function getActiveStage2(c) {
   if (!c.acknowledgedAt) return "ack";
   if (!c.containmentAt) return "cont";
   if (!c.rcaAt) return "rca";
@@ -8809,7 +8903,7 @@ async function processDailySummaries() {
     let dueSoonCount = 0;
     let overdueCount = 0;
     for (const c of openComplaints) {
-      const stage = getActiveStage3(c);
+      const stage = getActiveStage2(c);
       if (!stage) continue;
       const multiplier = c.priority?.tatMultiplier ?? 1;
       const dues = computeStageDueDates({ receivedAt: new Date(c.receivedAt).toISOString(), priorityMultiplier: multiplier }, tatConfig);
@@ -8891,7 +8985,7 @@ async function processWeeklySummaries() {
     ]);
     let overdueCount = 0;
     for (const c of openComplaints) {
-      const stage = getActiveStage3(c);
+      const stage = getActiveStage2(c);
       if (!stage) continue;
       const multiplier = c.priority?.tatMultiplier ?? 1;
       const dues = computeStageDueDates({ receivedAt: new Date(c.receivedAt).toISOString(), priorityMultiplier: multiplier }, tatConfig);

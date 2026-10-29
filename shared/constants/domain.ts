@@ -275,6 +275,7 @@ export const EMAIL_TRIGGER_EVENTS = [
   "TAT_DUE_SOON",
   "TAT_OVERDUE",
   "TAT_ESCALATION",
+  "TAT_DELAY_DAILY",
   // CAPA
   "CAPA_ASSIGNED",
   "CAPA_REASSIGNED",
@@ -296,6 +297,9 @@ export const EMAIL_TRIGGER_EVENTS = [
   "DAILY_SUMMARY",
   "WEEKLY_SUMMARY"
 ] as const;
+
+/** A delayed stage copies Management level people only once it is more than this many days late. */
+export const MANAGEMENT_ESCALATION_DAYS = 10;
 
 /** The overall effectiveness review of a complaint falls due this many months after its CAPAs are done. */
 export const EFFECTIVENESS_REVIEW_MONTHS = 6;
@@ -321,6 +325,7 @@ export const EMAIL_TRIGGER_LABELS: Record<EmailTriggerEvent, string> = {
   TAT_DUE_SOON: "TAT Stage Due Soon",
   TAT_OVERDUE: "TAT Stage Overdue",
   TAT_ESCALATION: "TAT Overdue Escalation",
+  TAT_DELAY_DAILY: "TAT Delay (Daily Reminder)",
   CAPA_ASSIGNED: "CAPA Assigned",
   CAPA_REASSIGNED: "CAPA Reassigned",
   CAPA_DUE_REMINDER: "CAPA Due Reminder",

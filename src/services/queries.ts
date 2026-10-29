@@ -106,15 +106,29 @@ export type DashboardResponse = {
   aging: { name: string; value: number }[];
   rootCauseCategories: { name: string; value: number }[];
   categories: { name: string; value: number }[];
+  /** One row per responsible person (complaint owner). */
+  ownerSummary: {
+    owner: string;
+    total: number;
+    open: number;
+    delayed: number;
+    inProcess: number;
+    closed: number;
+    closurePercent: number;
+    status: "Compliant" | "Non-Compliant";
+  }[];
   recent: { id: string; number: string; type: string; status: string; customer: string; category: string; receivedAt: string; isRepeat: boolean }[];
 };
 
 export type DateRangeParams = { startDate?: string; endDate?: string };
 
-export function useDashboard(company?: string, range: DateRangeParams = {}) {
+/** "" means both Internal and External complaints. */
+export type ComplaintTypeFilter = "" | "Internal" | "External";
+
+export function useDashboard(company?: string, range: DateRangeParams = {}, type: ComplaintTypeFilter = "") {
   return useApiQuery<DashboardResponse>(
-    ["analytics", "dashboard", company ?? "all", range.startDate ?? "", range.endDate ?? ""],
-    `/api/analytics/dashboard${buildQuery({ company, startDate: range.startDate, endDate: range.endDate })}`
+    ["analytics", "dashboard", company ?? "all", range.startDate ?? "", range.endDate ?? "", type],
+    `/api/analytics/dashboard${buildQuery({ company, startDate: range.startDate, endDate: range.endDate, type })}`
   );
 }
 
@@ -136,10 +150,10 @@ export type TatResponse = {
   config: Record<string, number>;
 };
 
-export function useTatAnalytics(company?: string, range: DateRangeParams = {}) {
+export function useTatAnalytics(company?: string, range: DateRangeParams = {}, type: ComplaintTypeFilter = "") {
   return useApiQuery<TatResponse>(
-    ["analytics", "tat", company ?? "all", range.startDate ?? "", range.endDate ?? ""],
-    `/api/analytics/tat${buildQuery({ company, startDate: range.startDate, endDate: range.endDate })}`
+    ["analytics", "tat", company ?? "all", range.startDate ?? "", range.endDate ?? "", type],
+    `/api/analytics/tat${buildQuery({ company, startDate: range.startDate, endDate: range.endDate, type })}`
   );
 }
 

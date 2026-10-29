@@ -9,9 +9,55 @@ import { Field, Select, Spinner } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { formatDate, formatNumber, formatPercent, statusTone } from "@/lib/format";
-import { useDashboard, useMasterBootstrap, usePermissions, type DashboardResponse } from "@/services/queries";
+import { ComplaintTypeFilter } from "@/components/ui/ComplaintTypeFilter";
+import {
+  useDashboard,
+  useMasterBootstrap,
+  usePermissions,
+  type ComplaintTypeFilter as ComplaintTypeFilterValue,
+  type DashboardResponse
+} from "@/services/queries";
 
 type RecentRow = DashboardResponse["recent"][number];
+type OwnerRow = DashboardResponse["ownerSummary"][number];
+
+/** Zero shows as a dash so the numbers that matter stand out, as in the department summary sample. */
+const count = (value: number, className: string) =>
+  value === 0 ? <span className="text-slate-300">–</span> : <span className={`font-bold ${className}`}>{value}</span>;
+
+const ownerColumns: Column<OwnerRow>[] = [
+  { key: "owner", header: "Responsible person", primary: true, render: (row) => <span className="font-semibold text-brand-charcoal">{row.owner}</span> },
+  { key: "total", header: "Total", align: "right", render: (row) => <span className="font-bold text-slate-700">{row.total}</span> },
+  { key: "open", header: "Open", align: "right", render: (row) => count(row.open, "text-red-600") },
+  {
+    key: "delayed",
+    header: "Delayed",
+    align: "right",
+    render: (row) =>
+      row.delayed === 0 ? (
+        <span className="text-slate-300">–</span>
+      ) : (
+        <span className="inline-flex min-w-[1.75rem] justify-center rounded-full border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700">{row.delayed}</span>
+      )
+  },
+  { key: "inProcess", header: "In process", align: "right", render: (row) => count(row.inProcess, "text-amber-600") },
+  { key: "closed", header: "Closed", align: "right", render: (row) => count(row.closed, "text-emerald-600") },
+  {
+    key: "closurePercent",
+    header: "Closure %",
+    align: "right",
+    render: (row) => (
+      <span className={`font-semibold ${row.closurePercent >= 80 ? "text-emerald-600" : row.closurePercent >= 50 ? "text-amber-600" : "text-red-600"}`}>
+        {formatPercent(row.closurePercent)}
+      </span>
+    )
+  },
+  {
+    key: "status",
+    header: "Status",
+    render: (row) => <StatusBadge tone={row.status === "Compliant" ? "green" : "red"}>{row.status}</StatusBadge>
+  }
+];
 
 export function DashboardPage() {
   const permissions = usePermissions();
@@ -19,8 +65,9 @@ export function DashboardPage() {
   const [company, setCompany] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [type, setType] = useState<ComplaintTypeFilterValue>("");
   const master = useMasterBootstrap();
-  const { data, isLoading, error } = useDashboard(company || undefined, { startDate, endDate });
+  const { data, isLoading, error } = useDashboard(company || undefined, { startDate, endDate }, type);
 
   const companies = master.data?.companies ?? [];
   const showCompanyFilter = companies.length > 1 && (permissions.can("view.all") || (permissions.user?.companyIds.length ?? 0) > 1);
@@ -50,8 +97,9 @@ export function DashboardPage() {
       <PageHeader title="Dashboard" description="Live quality performance across every complaint and CAPA you are permitted to see." />
 
       <div className="space-y-4 p-3 sm:p-6">
-        <SectionCard className="max-w-3xl">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <SectionCard className="max-w-5xl">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <ComplaintTypeFilter value={type} onChange={setType} />
             {showCompanyFilter ? (
               <Field label="Company scope">
                 <Select value={company} onChange={(event) => setCompany(event.target.value)}>
@@ -167,6 +215,20 @@ export function DashboardPage() {
               />
               <KpiCard label="Closed complaints" value={formatNumber(kpis.closed)} hint="Complaints that passed every closure gate." />
             </div>
+
+            <SectionCard
+              title="Responsible person summary"
+              description="Complaints by owner. Open is everything not yet closed; Delayed counts open complaints that have breached a TAT stage; In process means work has started. Compliant means nothing is delayed."
+            >
+              <DataTable
+                columns={ownerColumns}
+                rows={data.ownerSummary}
+                rowKey={(row) => row.owner}
+                emptyTitle="No complaints to summarise"
+                emptyDescription="Complaints appear here, grouped by their owner, once they are registered."
+                caption="Complaints by responsible person"
+              />
+            </SectionCard>
 
             <div className="grid gap-3 lg:grid-cols-2">
               <SectionCard title="Complaints received and closed" description="Rolling twelve months.">

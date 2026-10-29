@@ -5,6 +5,7 @@ import type { ComplaintCreateInput, ComplaintListQuery, ComplaintUpdateInput, St
 import { openCapaWarnings, shouldAutoReopenOnLongTerm, validateForClosure } from "../domain/closure";
 import { canCloseComplaint, canEditComplaint, canSeeCompany, canViewComplaint, hasPermission, isMasterAdmin } from "../domain/rbac";
 import { nextReviewDue } from "../domain/effectiveness-review";
+import { COMMON_CC_EMAILS } from "../lib/email-policy";
 import { describeRepeatBasis, findRepeatMatches, repeatCutoff } from "../domain/repeat";
 import { buildSignatureRecord, rolesInvalidatedBy, validateRevocation, validateSignature } from "../domain/signature";
 import { buildTatPlan, isStageOverdueNow } from "../domain/tat";
@@ -26,7 +27,7 @@ import { nextComplaintNumber } from "./numbering.service";
 import { writeAudit } from "./audit.service";
 import { businessRuleError, httpError, type FieldIssue } from "../utils/http";
 
-const COMPLAINT_CREATED_FIXED_CC = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
+const COMPLAINT_CREATED_FIXED_CC = COMMON_CC_EMAILS;
 
 function gapsToIssues(gaps: Gap[]): FieldIssue[] {
   return gaps.map((gap) => ({ field: gap.field, section: gap.section, message: gap.hint ? `${gap.field} — ${gap.hint}` : gap.field }));

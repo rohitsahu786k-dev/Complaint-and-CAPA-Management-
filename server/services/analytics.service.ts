@@ -1,6 +1,6 @@
 import { Types } from "mongoose";
 import type { ApiUser } from "@shared/types/api";
-import { WORKFLOW_STAGES, WORKFLOW_STAGE_LABELS, type WorkflowStage } from "@shared/constants/domain";
+import { WORKFLOW_STAGES, WORKFLOW_STAGE_LABELS, type ComplaintType, type WorkflowStage } from "@shared/constants/domain";
 import { hasPermission, canSeeCompany } from "../domain/rbac";
 import { buildTatPlan } from "../domain/tat";
 import type { DomainComplaint, TatConfig } from "../domain/types";
@@ -24,6 +24,7 @@ type ComplaintRow = {
   closedAt?: Date | null;
   priority?: Types.ObjectId;
   owner?: Types.ObjectId;
+  ownerEmployee?: Types.ObjectId;
   responsibleDept?: Types.ObjectId;
   customer?: string;
   product?: string;
@@ -43,7 +44,7 @@ type ComplaintRow = {
 };
 
 const COMPLAINT_PROJECTION =
-  "number company type status receivedAt closedAt priority owner responsibleDept customer product category rootCauseCategory d4Occurrence isRepeat repeatOf acknowledgedAt containmentAt rcaAt capaAssignedAt ackDelayReason contDelayReason rcaDelayReason capaDelayReason";
+  "number company type status receivedAt closedAt priority owner ownerEmployee responsibleDept customer product category rootCauseCategory d4Occurrence isRepeat repeatOf acknowledgedAt containmentAt rcaAt capaAssignedAt ackDelayReason contDelayReason rcaDelayReason capaDelayReason";
 
 export type AnalyticsScope = { filter: Record<string, unknown>; companyId: string | null };
 type DateRange = { startDate?: Date; endDate?: Date };
@@ -151,14 +152,54 @@ function stageStates(rows: ComplaintRow[], multipliers: Map<string, { tatMultipl
 
 /* ------------------------------------------------------------------ dashboard */
 
-export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange) {
+/** The complaints a dashboard shows: the date range, and optionally only Internal or only External ones. */
+function complaintFilter(dateFilter: Record<string, unknown>, type?: ComplaintType) {
+  return { ...(Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}), ...(type ? { type } : {}) };
+}
+
+/**
+ * One row per responsible person (the complaint owner): how many complaints they own and where they
+ * stand. "Delayed" uses the same rule as the Overdue card, so the column adds up to that number.
+ */
+async function ownerSummary(states: ReturnType<typeof stageStates>) {
+  const ownerIds = [...new Set(states.map(({ row }) => row.owner).filter(Boolean).map(String))];
+  const employeeIds = [...new Set(states.map(({ row }) => row.ownerEmployee).filter(Boolean).map(String))];
+  const [users, employees] = await Promise.all([
+    ownerIds.length ? User.find({ _id: { $in: ownerIds } }).select("name").lean() : [],
+    employeeIds.length ? Employee.find({ _id: { $in: employeeIds } }).select("name").lean() : []
+  ]);
+  const names = new Map([...users, ...employees].map((entry) => [String(entry._id), entry.name as string]));
+
+  const people = new Map<string, { owner: string; total: number; open: number; delayed: number; inProcess: number; closed: number }>();
+  for (const { row, plan } of states) {
+    // A directory employee named as owner is who the complaint is shown against, so they are the person here.
+    const owner = (row.ownerEmployee && names.get(String(row.ownerEmployee))) || (row.owner && names.get(String(row.owner))) || "Unassigned";
+    const entry = people.get(owner) ?? { owner, total: 0, open: 0, delayed: 0, inProcess: 0, closed: 0 };
+    entry.total += 1;
+    if (row.status === "Closed") {
+      entry.closed += 1;
+    } else {
+      entry.open += 1;
+      if (plan.some((stage) => stage.overdue)) entry.delayed += 1;
+      if (row.acknowledgedAt) entry.inProcess += 1;
+    }
+    people.set(owner, entry);
+  }
+
+  return [...people.values()]
+    .map((entry) => ({
+      ...entry,
+      closurePercent: percent(entry.closed, entry.total),
+      status: entry.delayed === 0 ? ("Compliant" as const) : ("Non-Compliant" as const)
+    }))
+    .sort((a, b) => b.delayed - a.delayed || b.total - a.total || a.owner.localeCompare(b.owner));
+}
+
+export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange, type?: ComplaintType) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
   const dateFilter = rangeFilter(range);
-  const [rows, multipliers] = await Promise.all([
-    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
-    priorityMultipliers()
-  ]);
+  const [rows, multipliers] = await Promise.all([loadComplaints(scope, complaintFilter(dateFilter, type)), priorityMultipliers()]);
   const now = new Date();
   const states = stageStates(rows, multipliers, config, now);
 
@@ -186,7 +227,13 @@ export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: 
   const averageClosureDays =
     closureDurations.length === 0 ? 0 : Math.round((closureDurations.reduce((sum, days) => sum + days, 0) / closureDurations.length) * 10) / 10;
 
-  const capaRows = await Capa.find({ ...scope.filter, ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}) })
+  // CAPAs belong to a complaint, so an Internal/External filter keeps only the CAPAs of those complaints.
+  const typedComplaintIds = type ? (await Complaint.find({ ...scope.filter, type }).select("_id").lean()).map((entry) => entry._id) : null;
+  const capaRows = await Capa.find({
+    ...scope.filter,
+    ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
+    ...(typedComplaintIds ? { complaint: { $in: typedComplaintIds } } : {})
+  })
     .select("status dueDate effectiveness completedAt owner")
     .lean();
   const capaClosed = capaRows.filter((capa) => capa.status === "Closed" || capa.status === "Completed").length;
@@ -263,20 +310,18 @@ export async function dashboardAnalytics(user: ApiUser | undefined, companyId?: 
     aging,
     rootCauseCategories: countBy(rows, (row) => row.rootCauseCategory),
     categories: countBy(rows, (row) => row.category).slice(0, 10),
+    ownerSummary: await ownerSummary(states),
     recent
   };
 }
 
 /* ------------------------------------------------------------------ TAT board */
 
-export async function tatAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange) {
+export async function tatAnalytics(user: ApiUser | undefined, companyId?: string, range?: DateRange, type?: ComplaintType) {
   const scope = await resolveScope(user, companyId);
   const config = await resolveTatConfig(companyId ?? null);
   const dateFilter = rangeFilter(range);
-  const [rows, multipliers] = await Promise.all([
-    loadComplaints(scope, Object.keys(dateFilter).length ? { receivedAt: dateFilter } : {}),
-    priorityMultipliers()
-  ]);
+  const [rows, multipliers] = await Promise.all([loadComplaints(scope, complaintFilter(dateFilter, type)), priorityMultipliers()]);
   const now = new Date();
   const states = stageStates(rows, multipliers, config, now);
 

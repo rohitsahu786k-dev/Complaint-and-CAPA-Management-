@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { COMPLAINT_TYPES } from "@shared/constants/domain";
 import { objectIdSchema } from "@shared/schemas/common";
 import { connectDB } from "../config/db";
 import { requireUser } from "../middleware/auth";
@@ -14,7 +15,9 @@ import { httpError, ok } from "../utils/http";
 const scopeQuery = z.object({
   company: objectIdSchema.optional(),
   startDate: z.coerce.date().optional(),
-  endDate: z.coerce.date().optional()
+  endDate: z.coerce.date().optional(),
+  /** Show only Internal or only External complaints; omitted means both. */
+  type: z.enum(COMPLAINT_TYPES).optional()
 });
 const reportQuery = scopeQuery.extend({ from: z.coerce.date().optional(), to: z.coerce.date().optional() });
 
@@ -27,7 +30,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await dashboardAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
+    return ok(res, await dashboardAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }, query.type));
   })
 );
 
@@ -36,7 +39,7 @@ analyticsRouter.get(
   asyncHandler(async (req, res) => {
     const query = scopeQuery.parse(req.query);
     await connectDB();
-    return ok(res, await tatAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }));
+    return ok(res, await tatAnalytics(req.user, query.company, { startDate: query.startDate, endDate: query.endDate }, query.type));
   })
 );
 

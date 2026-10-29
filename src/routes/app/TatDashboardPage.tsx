@@ -13,6 +13,7 @@ import { CategoryBarChart, TrendChart } from "@/components/charts/Charts";
 import { Button } from "@/components/ui/Button";
 import { KpiCard, SectionCard } from "@/components/ui/Cards";
 import { DataTable, type Column } from "@/components/ui/DataTable";
+import { ComplaintTypeFilter } from "@/components/ui/ComplaintTypeFilter";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { Field, Select, Spinner } from "@/components/ui/Field";
 import { PageHeader } from "@/components/ui/PageHeader";
@@ -24,6 +25,7 @@ import {
   useMasterBootstrap,
   usePermissions,
   useTatAnalytics,
+  type ComplaintTypeFilter as ComplaintTypeFilterValue,
   type TatResponse
 } from "@/services/queries";
 
@@ -35,8 +37,9 @@ export function TatDashboardPage() {
   const [company, setCompany] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [type, setType] = useState<ComplaintTypeFilterValue>("");
   const master = useMasterBootstrap();
-  const { data, isLoading, error } = useTatAnalytics(company || undefined, { startDate, endDate });
+  const { data, isLoading, error } = useTatAnalytics(company || undefined, { startDate, endDate }, type);
 
   const companies = master.data?.companies ?? [];
   const showCompanyFilter =
@@ -147,8 +150,9 @@ export function TatDashboardPage() {
       />
 
       <div className="space-y-6 px-4 sm:px-6">
-        <SectionCard className="max-w-3xl">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <SectionCard className="max-w-5xl">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <ComplaintTypeFilter value={type} onChange={setType} />
             {showCompanyFilter && (
               <Field label="Company Scope">
                 <Select value={company} onChange={(e) => setCompany(e.target.value)}>

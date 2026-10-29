@@ -7,6 +7,9 @@
  */
 const DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
 
+/** The shared company mailboxes copied on complaint registration and on every delayed-TAT reminder. */
+export const COMMON_CC_EMAILS = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
+
 export function allowedEmailDomains(): string[] {
   const configured = (process.env.EMAIL_ALLOWED_DOMAINS ?? "")
     .split(/[,;\s]+/)

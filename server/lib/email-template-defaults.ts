@@ -397,6 +397,52 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
     supportedVariables: ["recipientName", "complaintNumber", "stage", "dueDate", "overdueHours", "departmentName", "ownerName", "actionUrl", "companyName"]
   },
   {
+    templateKey: "tat-delay-daily",
+    templateName: "TAT Delay (Daily Reminder)",
+    triggerEvent: "TAT_DELAY_DAILY",
+    subject: "{{statusLabel}}: Complaint {{complaintNumber}} TAT delayed {{maxDaysLate}}",
+    htmlBody: wrapEmailLayout(
+      `${greeting()}${heading("Complaint TAT Delayed")}` +
+        `<p style="margin:0 0 12px;">Complaint <strong>{{complaintNumber}}</strong> has <strong>{{delayedCount}}</strong> delayed milestone(s), the longest <strong>{{maxDaysLate}}</strong> late. Please complete the pending stage(s) in the portal. You will get this reminder every day until they are completed.</p>` +
+        infoTable(
+          infoRow("Acknowledgement", "{{ackStatus}}") +
+            infoRow("Containment", "{{contStatus}}") +
+            infoRow("RCA Completion", "{{rcaStatus}}") +
+            infoRow("CAPA Assignment", "{{capaStatus}}")
+        ) +
+        infoTable(
+          infoRow("Complaint No.", "{{complaintNumber}}") +
+            infoRow("Customer / Issue", "{{customerName}}") +
+            infoRow("Responsible Dept.", "{{departmentName}}") +
+            infoRow("Owner", "{{ownerName}}") +
+            infoRow("Priority", "{{priority}}")
+        ) +
+        `<p style="margin:0 0 4px;font-size:12px;color:#64748B;">{{escalationNote}}</p>` +
+        emailButton("{{actionUrl}}", "Open Complaint") +
+        closing()
+    ),
+    textBody:
+      "Hello {{recipientName}},\n\n{{statusLabel}}: Complaint {{complaintNumber}} has {{delayedCount}} delayed milestone(s), the longest {{maxDaysLate}} late. You will get this reminder every day until they are completed.\n\nAcknowledgement: {{ackStatus}}\nContainment: {{contStatus}}\nRCA Completion: {{rcaStatus}}\nCAPA Assignment: {{capaStatus}}\n\nCustomer / Issue: {{customerName}}\nDept: {{departmentName}}\nOwner: {{ownerName}}\nPriority: {{priority}}\n\n{{escalationNote}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
+    supportedVariables: [
+      "recipientName",
+      "statusLabel",
+      "complaintNumber",
+      "delayedCount",
+      "maxDaysLate",
+      "ackStatus",
+      "contStatus",
+      "rcaStatus",
+      "capaStatus",
+      "customerName",
+      "departmentName",
+      "ownerName",
+      "priority",
+      "escalationNote",
+      "actionUrl",
+      "companyName"
+    ]
+  },
+  {
     templateKey: "tat-escalation",
     templateName: "TAT Overdue Escalation",
     triggerEvent: "TAT_ESCALATION",

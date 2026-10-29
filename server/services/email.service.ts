@@ -20,6 +20,8 @@ export type SendTemplatedEmailInput = {
   relatedCapaId?: string | Types.ObjectId;
   dedupeKey?: string;
   sentBySystem?: boolean;
+  /** Do not add the department's Management addresses to the CC (Manager and HOD are still added). */
+  excludeManagement?: boolean;
 };
 
 export type SendEmailResult = {
@@ -131,7 +133,8 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
   // Department-specific emails always CC the Manager and HOD addresses kept in Master Data > Employees.
   const departmentCc = await resolveDepartmentCc({
     complaintId: input.relatedComplaintId,
-    capaId: input.relatedCapaId
+    capaId: input.relatedCapaId,
+    excludeManagement: input.excludeManagement
   }).catch(() => [] as string[]);
   // Complaint and CAPA emails also copy the reporting line of each recipient. Account and password
   // emails carry no complaint or CAPA reference, so they are never copied to anyone else.

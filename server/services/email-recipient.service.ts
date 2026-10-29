@@ -40,9 +40,15 @@ function normalizeEmailList(value: unknown): string[] {
 export async function resolveDepartmentCc(ref: {
   complaintId?: string | Types.ObjectId;
   capaId?: string | Types.ObjectId;
+  /** Leave the department's Management addresses out (delay reminders add them only after 10 days). */
+  excludeManagement?: boolean;
 }): Promise<string[]> {
   if (!ref.complaintId && !ref.capaId) return [];
-  return resolveRecipients({ ...ref, targetRoles: ["Manager", "Department Head", "Department Management"] });
+  const { excludeManagement, ...target } = ref;
+  return resolveRecipients({
+    ...target,
+    targetRoles: excludeManagement ? ["Manager", "Department Head"] : ["Manager", "Department Head", "Department Management"]
+  });
 }
 
 /**
