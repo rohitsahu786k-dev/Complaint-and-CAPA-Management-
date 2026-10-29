@@ -254,6 +254,7 @@ export const overallEffectivenessSchema = z.object({
 });
 
 export type ComplaintCreateInput = z.infer<typeof complaintCreateSchema>;
+export type ComplaintUpdateInput = z.infer<typeof complaintUpdateSchema>;
 export type ComplaintListQuery = z.infer<typeof complaintListQuerySchema>;
 export type StageCompleteInput = z.infer<typeof stageCompleteSchema>;
 export type EightDInput = z.infer<typeof eightDSchema>;

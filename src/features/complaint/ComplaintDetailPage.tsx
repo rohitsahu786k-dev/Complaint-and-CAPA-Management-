@@ -6,6 +6,7 @@ import {
   FileSpreadsheet,
   FileText,
   Lock,
+  Pencil,
   RefreshCw,
   Repeat2,
   ShieldAlert,
@@ -36,6 +37,7 @@ import {
 import { AttachmentsTab } from "./AttachmentsTab";
 import { AuditTab } from "./AuditTab";
 import { CapaTab } from "./CapaTab";
+import { EditComplaintModal } from "./EditComplaintModal";
 import { EffectivenessTab } from "./EffectivenessTab";
 import { EightDTab } from "./EightDTab";
 import { InternalTab } from "./InternalTab";
@@ -79,6 +81,9 @@ export function ComplaintDetailPage() {
 
   // Delete modal state (Master Admin)
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+
+  // Edit modal state (Master Admin)
+  const [showEditModal, setShowEditModal] = useState(false);
 
   const detailQuery = useComplaintDetail(id);
   const data = detailQuery.data;
@@ -290,6 +295,13 @@ export function ComplaintDetailPage() {
         }
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {permissions.isMasterAdmin && (
+              <Button type="button" variant="secondary" className="text-xs" onClick={() => setShowEditModal(true)}>
+                <Pencil className="mr-1.5 h-3.5 w-3.5" />
+                Edit
+              </Button>
+            )}
+
             <Button
               type="button"
               variant="secondary"
@@ -735,6 +747,9 @@ export function ComplaintDetailPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Master Admin edit: mounted only while open so the form always starts from the saved values */}
+      {showEditModal && <EditComplaintModal complaint={complaint} open onClose={() => setShowEditModal(false)} />}
 
       {/* Master Admin Delete Confirmation with typed confirmation phrase */}
       <ConfirmDialog

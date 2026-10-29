@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import type { ApiUser } from "@shared/types/api";
-import { WORKFLOW_STAGE_STATUS, type SignatureRole, type WorkflowStage } from "@shared/constants/domain";
-import type { ComplaintCreateInput, ComplaintListQuery, StageCompleteInput } from "@shared/schemas/complaint";
+import { WORKFLOW_STAGE_LABELS, WORKFLOW_STAGE_STATUS, type SignatureRole, type WorkflowStage } from "@shared/constants/domain";
+import type { ComplaintCreateInput, ComplaintListQuery, ComplaintUpdateInput, StageCompleteInput } from "@shared/schemas/complaint";
 import { openCapaWarnings, shouldAutoReopenOnLongTerm, validateForClosure } from "../domain/closure";
 import { canCloseComplaint, canEditComplaint, canSeeCompany, canViewComplaint, hasPermission, isMasterAdmin } from "../domain/rbac";
 import { nextReviewDue } from "../domain/effectiveness-review";
@@ -231,6 +231,128 @@ export async function createComplaint(input: ComplaintCreateInput, user: ApiUser
 }
 
 
+
+/* ------------------------------------------------------------------ editing */
+
+const sameValue = (a: unknown, b: unknown) =>
+  a instanceof Date || b instanceof Date ? new Date(a as string).getTime() === new Date(b as string).getTime() : String(a ?? "") === String(b ?? "");
+
+/**
+ * A Master Admin correcting a complaint after the fact, mostly to hand an old complaint to a new
+ * owner. The type, company and status are never changed here, and every change is recorded with
+ * its old and new value. A change of owner notifies the new owner and sends the handover email.
+ */
+export async function updateComplaint(complaintId: string, input: ComplaintUpdateInput, user: ApiUser | undefined) {
+  const context = await loadComplaintContext(complaintId, user);
+  const { doc, actor } = context;
+  if (!isMasterAdmin(actor)) throw httpError(403, "Only a Master Admin can edit a complaint");
+
+  // References must point at records that exist, so a bad id cannot leave a complaint half-edited.
+  if (input.priority && !(await Priority.exists({ _id: input.priority }))) throw httpError(400, "The selected priority does not exist");
+  const departmentIds = [input.internalDept, input.againstDept, input.responsibleDept].filter(Boolean);
+  if (departmentIds.length > 0 && (await Department.countDocuments({ _id: { $in: departmentIds } })) !== new Set(departmentIds).size) {
+    throw httpError(400, "A selected department does not exist");
+  }
+  if (input.owner && !(await User.exists({ _id: input.owner, active: true }))) throw httpError(400, "The selected owner is not an active user");
+  const ownerEmployee =
+    input.ownerEmployee && !input.owner
+      ? await Employee.findOne({ _id: input.ownerEmployee, company: doc.company, active: true }).select("name email").lean()
+      : null;
+  if (input.ownerEmployee && !input.owner && !ownerEmployee) throw httpError(400, "The selected employee is not active in this company");
+
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  const apply = (key: string, value: unknown) => {
+    if (value === undefined) return;
+    const current = doc.get(key);
+    if (sameValue(current, value)) return;
+    changes[key] = { from: current ?? null, to: value };
+    doc.set(key, value);
+  };
+
+  for (const key of ["source", "reportedBy", "customerContact", "customerLocation", "project", "customerPO", "product", "batch", "category", "subCategory", "description"] as const) {
+    apply(key, input[key]);
+  }
+  apply("priority", input.priority);
+  apply("receivedAt", input.receivedAt);
+  if (doc.type === "External") {
+    apply("customer", input.customer);
+    apply("responsibleDept", input.responsibleDept);
+  } else {
+    apply("internalDept", input.internalDept);
+    apply("againstDept", input.againstDept);
+    // An internal complaint is answerable to the department it was raised against.
+    if (input.againstDept) apply("responsibleDept", input.againstDept);
+  }
+
+  // `owner` is the accountable portal user; `ownerEmployee` names a directory person who has no login.
+  if (input.owner) {
+    apply("owner", input.owner);
+    if (doc.ownerEmployee) {
+      changes.ownerEmployee = { from: doc.ownerEmployee, to: null };
+      doc.set("ownerEmployee", undefined);
+    }
+  } else if (ownerEmployee) {
+    apply("ownerEmployee", ownerEmployee._id);
+  }
+
+  const changed = Object.keys(changes);
+  if (changed.length === 0) return doc;
+
+  pushWorkflowLog(doc, "Edited", actor, `Master Admin updated: ${changed.join(", ")}`);
+  await doc.save();
+
+  await writeAudit({
+    actor: user,
+    action: "UPDATE",
+    entity: "Complaint",
+    entityId: complaintId,
+    before: Object.fromEntries(changed.map((key) => [key, changes[key].from])),
+    after: Object.fromEntries(changed.map((key) => [key, changes[key].to])),
+    metadata: { editedBy: "Master Admin", number: doc.number }
+  });
+
+  if (changes.owner || changes.ownerEmployee) {
+    const [newOwner, department] = await Promise.all([
+      doc.owner ? User.findById(doc.owner).select("name").lean() : null,
+      doc.responsibleDept ? Department.findById(doc.responsibleDept).select("name").lean() : null
+    ]);
+    const ownerName = ownerEmployee?.name ?? newOwner?.name ?? "the new owner";
+    if (changes.owner && doc.owner) {
+      await notify({
+        recipients: [doc.owner],
+        message: `Complaint ${doc.number} was assigned to you`,
+        category: "complaint",
+        priority: "high",
+        entityType: "Complaint",
+        entityId: doc._id,
+        link: `/complaints/${complaintId}`
+      });
+    }
+    const recipients = await resolveRecipients({
+      complaintId: doc._id,
+      targetRoles: ["Complaint Owner"],
+      explicitEmails: ownerEmployee?.email ? [ownerEmployee.email] : undefined
+    });
+    if (recipients.length > 0) {
+      const stage = (["ack", "cont", "rca", "capa"] as const).find((code) => !doc.get({ ack: "acknowledgedAt", cont: "containmentAt", rca: "rcaAt", capa: "capaAssignedAt" }[code]));
+      await sendTemplatedEmail({
+        triggerEvent: "COMPLAINT_REASSIGNED",
+        recipients,
+        relatedComplaintId: doc._id,
+        data: {
+          recipientName: ownerName,
+          ownerName,
+          complaintNumber: doc.number,
+          departmentName: department?.name ?? "",
+          stage: stage ? WORKFLOW_STAGE_LABELS[stage] : "All stages complete",
+          actionUrl: `/complaints/${complaintId}`
+        }
+      });
+    }
+  }
+
+  return doc;
+}
 
 /* ------------------------------------------------------------------ querying */
 

@@ -5,6 +5,7 @@ import {
   closeComplaintSchema,
   complaintCreateSchema,
   complaintListQuerySchema,
+  complaintUpdateSchema,
   eightDSchema,
   internalInvestigationSchema,
   noteCreateSchema,
@@ -33,7 +34,8 @@ import {
   saveInvestigation,
   saveOverallEffectiveness,
   revokeSignature,
-  signComplaint
+  signComplaint,
+  updateComplaint
 } from "../services/complaint.service";
 import { writeAudit } from "../services/audit.service";
 import { asyncHandler } from "../utils/async-handler";
@@ -91,6 +93,17 @@ complaintRouter.get(
   asyncHandler(async (req, res) => {
     await connectDB();
     return ok(res, await getComplaintDetail(req.params.id, req.user));
+  })
+);
+
+/** Master Admin correction of a complaint's details, mainly to hand an old complaint to a new owner. */
+complaintRouter.patch(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const input = complaintUpdateSchema.parse(req.body);
+    await connectDB();
+    const complaint = await updateComplaint(req.params.id, input, req.user);
+    return ok(res, { complaint });
   })
 );
 

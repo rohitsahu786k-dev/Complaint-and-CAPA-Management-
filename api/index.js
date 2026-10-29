@@ -3562,6 +3562,103 @@ async function createComplaint(input, user) {
   }
   return doc;
 }
+var sameValue = (a, b) => a instanceof Date || b instanceof Date ? new Date(a).getTime() === new Date(b).getTime() : String(a ?? "") === String(b ?? "");
+async function updateComplaint(complaintId, input, user) {
+  const context = await loadComplaintContext(complaintId, user);
+  const { doc, actor } = context;
+  if (!isMasterAdmin(actor)) throw httpError(403, "Only a Master Admin can edit a complaint");
+  if (input.priority && !await Priority.exists({ _id: input.priority })) throw httpError(400, "The selected priority does not exist");
+  const departmentIds = [input.internalDept, input.againstDept, input.responsibleDept].filter(Boolean);
+  if (departmentIds.length > 0 && await Department.countDocuments({ _id: { $in: departmentIds } }) !== new Set(departmentIds).size) {
+    throw httpError(400, "A selected department does not exist");
+  }
+  if (input.owner && !await User.exists({ _id: input.owner, active: true })) throw httpError(400, "The selected owner is not an active user");
+  const ownerEmployee = input.ownerEmployee && !input.owner ? await Employee.findOne({ _id: input.ownerEmployee, company: doc.company, active: true }).select("name email").lean() : null;
+  if (input.ownerEmployee && !input.owner && !ownerEmployee) throw httpError(400, "The selected employee is not active in this company");
+  const changes = {};
+  const apply = (key, value) => {
+    if (value === void 0) return;
+    const current = doc.get(key);
+    if (sameValue(current, value)) return;
+    changes[key] = { from: current ?? null, to: value };
+    doc.set(key, value);
+  };
+  for (const key of ["source", "reportedBy", "customerContact", "customerLocation", "project", "customerPO", "product", "batch", "category", "subCategory", "description"]) {
+    apply(key, input[key]);
+  }
+  apply("priority", input.priority);
+  apply("receivedAt", input.receivedAt);
+  if (doc.type === "External") {
+    apply("customer", input.customer);
+    apply("responsibleDept", input.responsibleDept);
+  } else {
+    apply("internalDept", input.internalDept);
+    apply("againstDept", input.againstDept);
+    if (input.againstDept) apply("responsibleDept", input.againstDept);
+  }
+  if (input.owner) {
+    apply("owner", input.owner);
+    if (doc.ownerEmployee) {
+      changes.ownerEmployee = { from: doc.ownerEmployee, to: null };
+      doc.set("ownerEmployee", void 0);
+    }
+  } else if (ownerEmployee) {
+    apply("ownerEmployee", ownerEmployee._id);
+  }
+  const changed = Object.keys(changes);
+  if (changed.length === 0) return doc;
+  pushWorkflowLog(doc, "Edited", actor, `Master Admin updated: ${changed.join(", ")}`);
+  await doc.save();
+  await writeAudit({
+    actor: user,
+    action: "UPDATE",
+    entity: "Complaint",
+    entityId: complaintId,
+    before: Object.fromEntries(changed.map((key) => [key, changes[key].from])),
+    after: Object.fromEntries(changed.map((key) => [key, changes[key].to])),
+    metadata: { editedBy: "Master Admin", number: doc.number }
+  });
+  if (changes.owner || changes.ownerEmployee) {
+    const [newOwner, department] = await Promise.all([
+      doc.owner ? User.findById(doc.owner).select("name").lean() : null,
+      doc.responsibleDept ? Department.findById(doc.responsibleDept).select("name").lean() : null
+    ]);
+    const ownerName = ownerEmployee?.name ?? newOwner?.name ?? "the new owner";
+    if (changes.owner && doc.owner) {
+      await notify({
+        recipients: [doc.owner],
+        message: `Complaint ${doc.number} was assigned to you`,
+        category: "complaint",
+        priority: "high",
+        entityType: "Complaint",
+        entityId: doc._id,
+        link: `/complaints/${complaintId}`
+      });
+    }
+    const recipients = await resolveRecipients({
+      complaintId: doc._id,
+      targetRoles: ["Complaint Owner"],
+      explicitEmails: ownerEmployee?.email ? [ownerEmployee.email] : void 0
+    });
+    if (recipients.length > 0) {
+      const stage = ["ack", "cont", "rca", "capa"].find((code) => !doc.get({ ack: "acknowledgedAt", cont: "containmentAt", rca: "rcaAt", capa: "capaAssignedAt" }[code]));
+      await sendTemplatedEmail({
+        triggerEvent: "COMPLAINT_REASSIGNED",
+        recipients,
+        relatedComplaintId: doc._id,
+        data: {
+          recipientName: ownerName,
+          ownerName,
+          complaintNumber: doc.number,
+          departmentName: department?.name ?? "",
+          stage: stage ? WORKFLOW_STAGE_LABELS[stage] : "All stages complete",
+          actionUrl: `/complaints/${complaintId}`
+        }
+      });
+    }
+  }
+  return doc;
+}
 var COMPLAINT_LIST_FIELDS = [
   "number",
   "type",
@@ -6310,6 +6407,15 @@ complaintRouter.get(
   asyncHandler(async (req, res) => {
     await connectDB();
     return ok(res, await getComplaintDetail(req.params.id, req.user));
+  })
+);
+complaintRouter.patch(
+  "/:id",
+  asyncHandler(async (req, res) => {
+    const input = complaintUpdateSchema.parse(req.body);
+    await connectDB();
+    const complaint = await updateComplaint(req.params.id, input, req.user);
+    return ok(res, { complaint });
   })
 );
 complaintRouter.post(
