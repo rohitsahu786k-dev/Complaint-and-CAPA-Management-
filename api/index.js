@@ -1254,6 +1254,19 @@ function effectivenessReminderBucket(daysLeft) {
 // server/lib/email-policy.ts
 var DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
 var COMMON_CC_EMAILS = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
+var MANAGEMENT_ONLY_AFTER_DELAY = /* @__PURE__ */ new Set([
+  // reminders before the due date: nothing is late yet
+  "TAT_REMINDER",
+  "TAT_DUE_SOON",
+  "CAPA_DUE_REMINDER",
+  // reminders about something already late
+  "TAT_DELAY_DAILY",
+  "CAPA_OVERDUE",
+  "EFFECTIVENESS_REVIEW_DUE"
+]);
+function excludesManagementByDefault(triggerEvent) {
+  return MANAGEMENT_ONLY_AFTER_DELAY.has(triggerEvent);
+}
 function allowedEmailDomains() {
   const configured = (process.env.EMAIL_ALLOWED_DOMAINS ?? "").split(/[,;\s]+/).map((domain) => domain.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
   return configured.length > 0 ? configured : DEFAULT_ALLOWED_DOMAINS;
@@ -2175,10 +2188,17 @@ async function resolveRecipients(options) {
   const effectiveOwnerId = options.ownerId || complaintDoc?.owner || capaDoc?.owner;
   const effectiveCoordinatorId = options.coordinatorId || complaintDoc?.coordinator;
   const roles = options.targetRoles || [];
-  if (roles.includes("Complaint Owner") && effectiveOwnerId) {
-    const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
-    const email = normalizeEmail(ownerUser?.email);
-    if (email) recipientSet.add(email);
+  if (roles.includes("Complaint Owner")) {
+    if (effectiveOwnerId) {
+      const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
+      const email = normalizeEmail(ownerUser?.email);
+      if (email) recipientSet.add(email);
+    }
+    if (complaintDoc?.ownerEmployee) {
+      const ownerEmployee = await Employee.findOne({ _id: complaintDoc.ownerEmployee, active: { $ne: false } }).select("email").lean();
+      const email = normalizeEmail(ownerEmployee?.email);
+      if (email) recipientSet.add(email);
+    }
   }
   if (roles.includes("Coordinator") && effectiveCoordinatorId) {
     const coordUser = await User.findOne({ _id: effectiveCoordinatorId, active: true }).lean();
@@ -3194,14 +3214,17 @@ async function sendTemplatedEmail(input) {
     });
     return { status: "skipped", logId: String(skippedLog._id), message: "No recipients" };
   }
+  const excludeManagement = input.excludeManagement ?? excludesManagementByDefault(input.triggerEvent);
   const departmentCc = await resolveDepartmentCc({
     complaintId: input.relatedComplaintId,
     capaId: input.relatedCapaId,
-    excludeManagement: input.excludeManagement
+    excludeManagement
   }).catch(() => []);
-  const recipientChainCc = input.relatedComplaintId || input.relatedCapaId ? await resolveRecipientChainCc(cleanRecipients).catch(() => []) : [];
+  const isCaseEmail = Boolean(input.relatedComplaintId || input.relatedCapaId);
+  const recipientChainCc = isCaseEmail ? await resolveRecipientChainCc(cleanRecipients).catch(() => []) : [];
+  const commonCc = isCaseEmail ? COMMON_CC_EMAILS : [];
   const ccList = Array.from(
-    new Set([...input.cc ?? [], ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
+    new Set([...input.cc ?? [], ...commonCc, ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
   ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
   const finalCc = splitByEmailPolicy(ccList);
   if (finalCc.blocked.length > 0) await recordBlockedAddresses(input, finalCc.blocked);
@@ -8700,9 +8723,13 @@ async function processEffectivenessReviewReminders(now) {
       explicitEmails: employee?.email ? [employee.email] : void 0
     });
     if (recipients.length === 0) continue;
+    const includeManagement = bucket.overdue && needsManagementEscalation(-daysLeft * 24);
+    const managementCc = includeManagement ? await resolveRecipients({ complaintId: complaint._id, targetRoles: ["Management"] }) : [];
     const res = await sendTemplatedEmail({
       triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
       recipients,
+      cc: managementCc,
+      excludeManagement: !includeManagement,
       dedupeKey: `EFFREV_${complaint._id}_${cycle}_${bucket.key}`,
       relatedComplaintId: complaint._id,
       data: {

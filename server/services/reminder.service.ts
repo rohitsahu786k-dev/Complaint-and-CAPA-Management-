@@ -5,6 +5,7 @@ import { EscalationConfiguration, TATConfiguration } from "../models/configurati
 import { DEFAULT_REMINDER_PERCENTAGES, DEFAULT_TAT_CONFIG, type WorkflowStage } from "@shared/constants/domain";
 import { computeStageDueDates } from "../domain/tat";
 import { daysUntil, effectivenessReminderBucket, nextReviewDue } from "../domain/effectiveness-review";
+import { needsManagementEscalation } from "../domain/tat-delay";
 import { EffectivenessCheck } from "../models/EffectivenessCheck";
 import { resolveRecipients } from "./email-recipient.service";
 import { sendTemplatedEmail } from "./email.service";
@@ -69,9 +70,15 @@ async function processEffectivenessReviewReminders(now: Date): Promise<number> {
     });
     if (recipients.length === 0) continue;
 
+    // The same rule as every delay email: Management is copied only once the check is over 10 days late.
+    const includeManagement = bucket.overdue && needsManagementEscalation(-daysLeft * 24);
+    const managementCc = includeManagement ? await resolveRecipients({ complaintId: complaint._id, targetRoles: ["Management"] }) : [];
+
     const res = await sendTemplatedEmail({
       triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
       recipients,
+      cc: managementCc,
+      excludeManagement: !includeManagement,
       dedupeKey: `EFFREV_${complaint._id}_${cycle}_${bucket.key}`,
       relatedComplaintId: complaint._id,
       data: {

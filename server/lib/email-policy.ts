@@ -10,6 +10,26 @@ const DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
 /** The shared company mailboxes copied on complaint registration and on every delayed-TAT reminder. */
 export const COMMON_CC_EMAILS = ["service@onepws.com", "jatin.chouhan@onepws.com", "process@onepws.com"];
 
+/**
+ * Emails sent before or while something is late. Management level people are NOT copied on these
+ * by default; a sender adds them (excludeManagement: false) only once a delay passes
+ * MANAGEMENT_ESCALATION_DAYS. Every other complaint/CAPA email keeps Management in the CC.
+ */
+const MANAGEMENT_ONLY_AFTER_DELAY = new Set([
+  // reminders before the due date: nothing is late yet
+  "TAT_REMINDER",
+  "TAT_DUE_SOON",
+  "CAPA_DUE_REMINDER",
+  // reminders about something already late
+  "TAT_DELAY_DAILY",
+  "CAPA_OVERDUE",
+  "EFFECTIVENESS_REVIEW_DUE"
+]);
+
+export function excludesManagementByDefault(triggerEvent: string): boolean {
+  return MANAGEMENT_ONLY_AFTER_DELAY.has(triggerEvent);
+}
+
 export function allowedEmailDomains(): string[] {
   const configured = (process.env.EMAIL_ALLOWED_DOMAINS ?? "")
     .split(/[,;\s]+/)

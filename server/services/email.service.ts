@@ -2,7 +2,7 @@ import { Types } from "mongoose";
 import { getAppUrl } from "../lib/app-url";
 import { DEFAULT_EMAIL_LOGO_URL } from "../lib/email-layout";
 import { escapeHtml, renderTemplate } from "../lib/email-template-renderer";
-import { EXTERNAL_ADDRESS_MESSAGE, splitByEmailPolicy } from "../lib/email-policy";
+import { COMMON_CC_EMAILS, EXTERNAL_ADDRESS_MESSAGE, excludesManagementByDefault, splitByEmailPolicy } from "../lib/email-policy";
 import { createTransporter, fromAddress, isSmtpConfigured } from "../lib/mailer";
 import { resolveDepartmentCc, resolveRecipientChainCc } from "./email-recipient.service";
 import { getActiveTemplateByTrigger } from "./email-template.service";
@@ -20,7 +20,10 @@ export type SendTemplatedEmailInput = {
   relatedCapaId?: string | Types.ObjectId;
   dedupeKey?: string;
   sentBySystem?: boolean;
-  /** Do not add the department's Management addresses to the CC (Manager and HOD are still added). */
+  /**
+   * Whether to leave the department's Management addresses out of the CC (Manager and HOD are still
+   * added). When not given, reminders about delay leave them out and every other email keeps them.
+   */
   excludeManagement?: boolean;
 };
 
@@ -131,19 +134,22 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
   }
 
   // Department-specific emails always CC the Manager and HOD addresses kept in Master Data > Employees.
+  // Management level people are copied on every complaint/CAPA email except reminders about delay,
+  // where a sender adds them only after 10 days (excludeManagement: false).
+  const excludeManagement = input.excludeManagement ?? excludesManagementByDefault(input.triggerEvent);
   const departmentCc = await resolveDepartmentCc({
     complaintId: input.relatedComplaintId,
     capaId: input.relatedCapaId,
-    excludeManagement: input.excludeManagement
+    excludeManagement
   }).catch(() => [] as string[]);
   // Complaint and CAPA emails also copy the reporting line of each recipient. Account and password
   // emails carry no complaint or CAPA reference, so they are never copied to anyone else.
-  const recipientChainCc =
-    input.relatedComplaintId || input.relatedCapaId
-      ? await resolveRecipientChainCc(cleanRecipients).catch(() => [] as string[])
-      : [];
+  const isCaseEmail = Boolean(input.relatedComplaintId || input.relatedCapaId);
+  const recipientChainCc = isCaseEmail ? await resolveRecipientChainCc(cleanRecipients).catch(() => [] as string[]) : [];
+  // The three common company mailboxes are on every complaint and CAPA email, whoever sent it.
+  const commonCc = isCaseEmail ? COMMON_CC_EMAILS : [];
   const ccList = Array.from(
-    new Set([...(input.cc ?? []), ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
+    new Set([...(input.cc ?? []), ...commonCc, ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
   ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
   // The Manager, HOD and Management addresses above come from the directory, so they are checked too.
   const finalCc = splitByEmailPolicy(ccList);

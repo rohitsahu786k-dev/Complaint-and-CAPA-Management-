@@ -115,11 +115,19 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
 
   const roles = options.targetRoles || [];
 
-  // 2. Resolve Complaint Owner
-  if (roles.includes("Complaint Owner") && effectiveOwnerId) {
-    const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
-    const email = normalizeEmail(ownerUser?.email);
-    if (email) recipientSet.add(email);
+  // 2. Resolve Complaint Owner: the accountable portal user, and the directory employee the
+  //    complaint is shown against when that owner has no login.
+  if (roles.includes("Complaint Owner")) {
+    if (effectiveOwnerId) {
+      const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
+      const email = normalizeEmail(ownerUser?.email);
+      if (email) recipientSet.add(email);
+    }
+    if (complaintDoc?.ownerEmployee) {
+      const ownerEmployee = await Employee.findOne({ _id: complaintDoc.ownerEmployee, active: { $ne: false } }).select("email").lean();
+      const email = normalizeEmail(ownerEmployee?.email);
+      if (email) recipientSet.add(email);
+    }
   }
 
   // 3. Resolve Complaint Coordinator
