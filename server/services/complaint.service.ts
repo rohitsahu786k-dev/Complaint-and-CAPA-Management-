@@ -4,7 +4,7 @@ import { WORKFLOW_STAGE_STATUS, type SignatureRole, type WorkflowStage } from "@
 import type { ComplaintCreateInput, ComplaintListQuery, StageCompleteInput } from "@shared/schemas/complaint";
 import { openCapaWarnings, shouldAutoReopenOnLongTerm, validateForClosure } from "../domain/closure";
 import { canCloseComplaint, canEditComplaint, canSeeCompany, canViewComplaint, hasPermission, isMasterAdmin } from "../domain/rbac";
-import { effectivenessReviewDue } from "../domain/effectiveness-review";
+import { nextReviewDue } from "../domain/effectiveness-review";
 import { describeRepeatBasis, findRepeatMatches, repeatCutoff } from "../domain/repeat";
 import { buildSignatureRecord, rolesInvalidatedBy, validateRevocation, validateSignature } from "../domain/signature";
 import { buildTatPlan, isStageOverdueNow } from "../domain/tat";
@@ -13,6 +13,7 @@ import { delayGaps, stageGaps, stageSequenceGaps, type Gap } from "../domain/wor
 import { Capa } from "../models/Capa";
 import { Complaint, type ComplaintHydrated } from "../models/Complaint";
 import { Department } from "../models/Department";
+import { EffectivenessCheck } from "../models/EffectivenessCheck";
 import { Employee } from "../models/Employee";
 import { Priority } from "../models/masters";
 import { User } from "../models/User";
@@ -324,6 +325,9 @@ export async function getComplaintDetail(complaintId: string, user: ApiUser | un
     Department.find({ _id: { $in: [internalDept, againstDept, responsibleDept].filter(Boolean) } }).select("name").lean()
   ]);
   const departmentName = (id: unknown) => (id ? departments.find((entry) => String(entry._id) === String(id))?.name : undefined);
+  // A closed complaint is re-checked every six months; the next check follows the ones already recorded.
+  const closedAt = context.doc.closedAt;
+  const checksDone = closedAt ? await EffectivenessCheck.countDocuments({ complaint: context.doc._id, closedAt }) : 0;
   return {
     complaint: {
       ...context.doc.toObject(),
@@ -334,10 +338,7 @@ export async function getComplaintDetail(complaintId: string, user: ApiUser | un
       responsibleDeptName: departmentName(responsibleDept),
       ownerName: ownerUser?.name,
       ownerEmployeeName: ownerEmployee?.name,
-      effectivenessReviewDue: effectivenessReviewDue({
-        capaCompletedAts: capas.map((capa) => capa.completedAt),
-        closedAt: context.doc.closedAt
-      })
+      effectivenessNextDue: closedAt ? nextReviewDue(closedAt, checksDone) : null
     },
     capas,
     tat: buildTatPlan(context.domain, tatConfig),

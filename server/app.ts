@@ -20,6 +20,7 @@ import { masterRouter } from "./routes/master.routes";
 import { notificationRouter } from "./routes/notification.routes";
 import { emailRouter } from "./routes/email.routes";
 import { cronRouter } from "./routes/cron.routes";
+import { effectivenessRouter } from "./routes/effectiveness.routes";
 
 export function createApp() {
   const app = express();
@@ -68,6 +69,7 @@ export function createApp() {
   app.use("/api/audit", auditRouter);
   app.use("/api/analytics", analyticsRouter);
   app.use("/api/reports", reportRouter);
+  app.use("/api/effectiveness", effectivenessRouter);
   app.use("/api/import", importRouter);
   app.use("/api/email", emailRouter);
   app.use("/api/cron", cronRouter);

@@ -4,7 +4,8 @@ import { Capa } from "../models/Capa";
 import { EscalationConfiguration, TATConfiguration } from "../models/configuration";
 import { DEFAULT_REMINDER_PERCENTAGES, DEFAULT_TAT_CONFIG, type WorkflowStage } from "@shared/constants/domain";
 import { computeStageDueDates } from "../domain/tat";
-import { daysUntil, effectivenessReminderBucket, effectivenessReviewDue } from "../domain/effectiveness-review";
+import { daysUntil, effectivenessReminderBucket, nextReviewDue } from "../domain/effectiveness-review";
+import { EffectivenessCheck } from "../models/EffectivenessCheck";
 import { resolveRecipients } from "./email-recipient.service";
 import { sendTemplatedEmail } from "./email.service";
 
@@ -17,33 +18,46 @@ export type ReminderRunResult = {
 };
 
 /**
- * Reminds the complaint owner, Quality Heads and Master Admins when a complaint's 6-month
- * effectiveness review is approaching or overdue and no overall result has been recorded.
+ * A run emails at most this many reminders. Complaints closed long ago are all overdue the first
+ * time the job sees them; the rest follow on the next days (each reminder is sent only once).
+ */
+const MAX_EFFECTIVENESS_REMINDERS_PER_RUN = 25;
+
+/**
+ * Closed complaints are re-checked every six months after closure. This reminds the complaint
+ * owner, Quality Heads and Master Admins as each check approaches, and weekly while it is overdue,
+ * until the check is recorded in the Effectiveness Tracker.
  */
 async function processEffectivenessReviewReminders(now: Date): Promise<number> {
   let sent = 0;
-  const pending = await Complaint.find({
-    $or: [{ "overallEffectiveness.result": "" }, { "overallEffectiveness.result": null }, { "overallEffectiveness.result": { $exists: false } }]
-  })
+  const closed = await Complaint.find({ status: "Closed", closedAt: { $ne: null } })
     .select("number customer product description closedAt owner ownerEmployee")
     .populate("owner", "name")
     .populate("ownerEmployee", "name email")
     .lean();
-  if (pending.length === 0) return 0;
+  if (closed.length === 0) return 0;
 
-  const capas = await Capa.find({ complaint: { $in: pending.map((entry) => entry._id) }, completedAt: { $ne: null } })
-    .select("complaint completedAt")
+  const checks = await EffectivenessCheck.find({ complaint: { $in: closed.map((entry) => entry._id) } })
+    .select("complaint closedAt")
     .lean();
-  const completedByComplaint = new Map<string, Date[]>();
-  for (const capa of capas) {
-    const key = String(capa.complaint);
-    completedByComplaint.set(key, [...(completedByComplaint.get(key) ?? []), capa.completedAt as Date]);
+  const checkClosures = new Map<string, number[]>();
+  for (const check of checks) {
+    const key = String(check.complaint);
+    checkClosures.set(key, [...(checkClosures.get(key) ?? []), check.closedAt.getTime()]);
   }
 
-  for (const complaint of pending) {
-    const due = effectivenessReviewDue({ capaCompletedAts: completedByComplaint.get(String(complaint._id)) ?? [], closedAt: complaint.closedAt });
-    if (!due) continue;
-    const daysLeft = daysUntil(due, now);
+  const due = closed
+    .map((complaint) => {
+      const closedAt = new Date(complaint.closedAt as Date);
+      // Only checks recorded for this closure count; a reopen and re-close starts the series again.
+      const done = (checkClosures.get(String(complaint._id)) ?? []).filter((time) => time === closedAt.getTime()).length;
+      const dueAt = nextReviewDue(closedAt, done);
+      return { complaint, cycle: done + 1, dueAt, daysLeft: daysUntil(dueAt, now) };
+    })
+    .sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
+
+  for (const { complaint, cycle, dueAt, daysLeft } of due) {
+    if (sent >= MAX_EFFECTIVENESS_REMINDERS_PER_RUN) break;
     const bucket = effectivenessReminderBucket(daysLeft);
     if (!bucket) continue;
 
@@ -58,20 +72,20 @@ async function processEffectivenessReviewReminders(now: Date): Promise<number> {
     const res = await sendTemplatedEmail({
       triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
       recipients,
-      dedupeKey: `EFFREV_${complaint._id}_${bucket.key}`,
+      dedupeKey: `EFFREV_${complaint._id}_${cycle}_${bucket.key}`,
       relatedComplaintId: complaint._id,
       data: {
         complaintNumber: complaint.number,
         customerName: complaint.customer || complaint.product || complaint.description?.slice(0, 80) || "Internal Issue",
-        dueDate: due.toLocaleDateString("en-IN"),
+        dueDate: dueAt.toLocaleDateString("en-IN"),
         ownerName: employee?.name || (complaint.owner as { name?: string } | null)?.name || "Assigned Owner",
         statusLabel: bucket.overdue ? "OVERDUE" : daysLeft === 0 ? "Due Today" : "Upcoming",
         timingText: bucket.overdue
           ? `overdue by ${-daysLeft} day(s)`
           : daysLeft === 0
             ? "due today"
-            : `due in ${daysLeft} day(s), on ${due.toLocaleDateString("en-IN")}`,
-        actionUrl: `/complaints/${complaint._id}`
+            : `due in ${daysLeft} day(s), on ${dueAt.toLocaleDateString("en-IN")}`,
+        actionUrl: "/effectiveness"
       }
     });
     if (res.status === "sent") sent++;

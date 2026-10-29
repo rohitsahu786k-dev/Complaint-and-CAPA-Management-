@@ -1221,6 +1221,7 @@ function shouldAutoReopenOnLongTerm(complaint) {
 // server/domain/effectiveness-review.ts
 var DAY_MS2 = 24 * 60 * 60 * 1e3;
 var EFFECTIVENESS_REMINDER_MILESTONES = [30, 14, 7, 3, 1, 0];
+var DUE_SOON_DAYS = 30;
 function addMonthsClamped(date2, months) {
   const result = new Date(date2.getTime());
   const day = result.getUTCDate();
@@ -1230,14 +1231,15 @@ function addMonthsClamped(date2, months) {
   result.setUTCDate(Math.min(day, monthEnd));
   return result;
 }
-function effectivenessReviewDue(input) {
-  const completed = input.capaCompletedAts.filter((value) => Boolean(value)).map((value) => new Date(value).getTime()).filter((time) => !Number.isNaN(time));
-  const base = completed.length > 0 ? new Date(Math.max(...completed)) : input.closedAt ? new Date(input.closedAt) : null;
-  if (!base || Number.isNaN(base.getTime())) return null;
-  return addMonthsClamped(base, EFFECTIVENESS_REVIEW_MONTHS);
+function nextReviewDue(closedAt, completedChecks) {
+  return addMonthsClamped(new Date(closedAt), EFFECTIVENESS_REVIEW_MONTHS * (completedChecks + 1));
 }
 function daysUntil(due, now) {
   return Math.ceil((due.getTime() - now.getTime()) / DAY_MS2) + 0;
+}
+function reviewStatus(daysLeft) {
+  if (daysLeft < 0) return "Overdue";
+  return daysLeft <= DUE_SOON_DAYS ? "Due Soon" : "Upcoming";
 }
 function effectivenessReminderBucket(daysLeft) {
   if (daysLeft < 0) return { key: `overdue-${Math.floor((-daysLeft - 1) / 7)}`, overdue: true };
@@ -1452,6 +1454,26 @@ var DepartmentSchema = new Schema9(
 DepartmentSchema.index({ name: 1, company: 1 }, { unique: true });
 var Department = mongoose10.models.Department || mongoose10.model("Department", DepartmentSchema);
 
+// server/models/EffectivenessCheck.ts
+import mongoose11, { Schema as Schema10 } from "mongoose";
+var EFFECTIVENESS_CHECK_RESULTS = ["Sustained", "Not Sustained"];
+var EffectivenessCheckSchema = new Schema10(
+  {
+    complaint: { type: Schema10.Types.ObjectId, ref: "Complaint", required: true, index: true },
+    closedAt: { type: Date, required: true },
+    cycle: { type: Number, required: true, min: 1 },
+    dueAt: { type: Date, required: true },
+    result: { type: String, enum: EFFECTIVENESS_CHECK_RESULTS, required: true },
+    remarks: { type: String, trim: true, default: "" },
+    checkedAt: { type: Date, required: true },
+    checkedBy: { type: Schema10.Types.ObjectId, ref: "User" },
+    checkedByName: { type: String, trim: true, default: "" }
+  },
+  { timestamps: true }
+);
+EffectivenessCheckSchema.index({ complaint: 1, closedAt: 1, cycle: 1 }, { unique: true });
+var EffectivenessCheck = mongoose11.models.EffectivenessCheck || mongoose11.model("EffectivenessCheck", EffectivenessCheckSchema);
+
 // server/services/mappers.ts
 function id(value) {
   if (!value) return void 0;
@@ -1603,15 +1625,15 @@ function toDomainActor(user, department) {
 }
 
 // server/models/Notification.ts
-import mongoose11, { Schema as Schema10 } from "mongoose";
-var NotificationSchema = new Schema10(
+import mongoose12, { Schema as Schema11 } from "mongoose";
+var NotificationSchema = new Schema11(
   {
-    recipient: { type: Schema10.Types.ObjectId, ref: "User", required: true, index: true },
+    recipient: { type: Schema11.Types.ObjectId, ref: "User", required: true, index: true },
     message: { type: String, required: true, trim: true },
     category: { type: String, enum: NOTIFICATION_CATEGORIES, default: "system", index: true },
     priority: { type: String, enum: ["normal", "high"], default: "normal" },
     entityType: { type: String, trim: true },
-    entityId: { type: Schema10.Types.ObjectId },
+    entityId: { type: Schema11.Types.ObjectId },
     link: { type: String, trim: true },
     read: { type: Boolean, default: false, index: true },
     readAt: { type: Date, default: null }
@@ -1619,7 +1641,7 @@ var NotificationSchema = new Schema10(
   { timestamps: true }
 );
 NotificationSchema.index({ recipient: 1, read: 1, createdAt: -1 });
-var Notification = mongoose11.models.Notification || mongoose11.model("Notification", NotificationSchema);
+var Notification = mongoose12.models.Notification || mongoose12.model("Notification", NotificationSchema);
 
 // server/services/notification.service.ts
 async function notify(input) {
@@ -2228,8 +2250,8 @@ async function resolveRecipients(options) {
 import { Types as Types2 } from "mongoose";
 
 // server/models/EmailTemplate.ts
-import mongoose12, { Schema as Schema11 } from "mongoose";
-var EmailTemplateSchema = new Schema11(
+import mongoose13, { Schema as Schema12 } from "mongoose";
+var EmailTemplateSchema = new Schema12(
   {
     templateKey: {
       type: String,
@@ -2249,12 +2271,12 @@ var EmailTemplateSchema = new Schema11(
     allowedRolesToReceive: [{ type: String }],
     ccRules: [{ type: String }],
     bccRules: [{ type: String }],
-    createdBy: { type: Schema11.Types.ObjectId, ref: "User" },
-    updatedBy: { type: Schema11.Types.ObjectId, ref: "User" }
+    createdBy: { type: Schema12.Types.ObjectId, ref: "User" },
+    updatedBy: { type: Schema12.Types.ObjectId, ref: "User" }
   },
   { timestamps: true }
 );
-var EmailTemplate = mongoose12.models.EmailTemplate || mongoose12.model("EmailTemplate", EmailTemplateSchema);
+var EmailTemplate = mongoose13.models.EmailTemplate || mongoose13.model("EmailTemplate", EmailTemplateSchema);
 
 // server/lib/email-template-defaults.ts
 var heading = (text2) => `<h2 style="margin:0 0 14px;font-size:18px;font-weight:700;color:#1e293b;">${text2}</h2>`;
@@ -2263,6 +2285,9 @@ var closing = () => `<p style="margin:24px 0 0;font-size:13px;color:#64748b;">Re
 var SUPERSEDED_DEFAULT_SUBJECTS = {
   "complaint-created": ["Complaint {{complaintNumber}} Registered: {{complaintTitle}}"],
   "effectiveness-review-due": ["{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})"]
+};
+var SUPERSEDED_DEFAULT_BODY_MARKERS = {
+  "effectiveness-review-due": "The 6-month effectiveness review for"
 };
 var DEFAULT_EMAIL_TEMPLATES = [
   // ==================== AUTH ====================
@@ -2544,11 +2569,11 @@ var DEFAULT_EMAIL_TEMPLATES = [
     triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
     subject: "{{statusLabel}}: Effectiveness Review {{complaintNumber}}",
     htmlBody: wrapEmailLayout(
-      `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}<p style="margin:0 0 12px;">The 6-month effectiveness review for <strong>Complaint {{complaintNumber}}</strong> is {{timingText}}. Please confirm that the root causes are eliminated and no repeat failure has occurred, then record the overall effectiveness result.</p>` + infoTable(
-        infoRow("Complaint No.", "{{complaintNumber}}") + infoRow("Customer / Issue", "{{customerName}}") + infoRow("Review Due", "{{dueDate}}") + infoRow("Owner", "{{ownerName}}")
-      ) + emailButton("{{actionUrl}}", "Open Effectiveness Review") + closing()
+      `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}<p style="margin:0 0 12px;">The periodic effectiveness check for <strong>Complaint {{complaintNumber}}</strong> (every 6 months after closure) is {{timingText}}. Please verify that the closure actions are still being followed, then record the check in the Effectiveness Tracker.</p>` + infoTable(
+        infoRow("Complaint No.", "{{complaintNumber}}") + infoRow("Customer / Issue", "{{customerName}}") + infoRow("Check Due", "{{dueDate}}") + infoRow("Owner", "{{ownerName}}")
+      ) + emailButton("{{actionUrl}}", "Open Effectiveness Tracker") + closing()
     ),
-    textBody: "Hello {{recipientName}},\n\nThe 6-month effectiveness review for complaint {{complaintNumber}} is {{timingText}}.\n\nCustomer / Issue: {{customerName}}\nReview due: {{dueDate}}\nOwner: {{ownerName}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
+    textBody: "Hello {{recipientName}},\n\nThe periodic effectiveness check for complaint {{complaintNumber}} (every 6 months after closure) is {{timingText}}. Please verify that the closure actions are still being followed and record the check in the Effectiveness Tracker.\n\nCustomer / Issue: {{customerName}}\nCheck due: {{dueDate}}\nOwner: {{ownerName}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
     supportedVariables: ["recipientName", "complaintNumber", "customerName", "dueDate", "ownerName", "statusLabel", "timingText", "actionUrl", "companyName"]
   },
   {
@@ -2774,6 +2799,12 @@ async function getActiveTemplateByTrigger(triggerEvent) {
   const doc = await EmailTemplate.findOne({ triggerEvent, isActive: true }).lean();
   if (doc) {
     const current = DEFAULT_EMAIL_TEMPLATES.find((t) => t.templateKey === doc.templateKey);
+    const marker = SUPERSEDED_DEFAULT_BODY_MARKERS[doc.templateKey];
+    if (current && marker && doc.htmlBody.includes(marker)) {
+      const upgrade = { subject: current.subject, htmlBody: current.htmlBody, textBody: current.textBody, supportedVariables: current.supportedVariables };
+      await EmailTemplate.updateOne({ _id: doc._id }, upgrade);
+      return { ...doc, ...upgrade };
+    }
     if (current && SUPERSEDED_DEFAULT_SUBJECTS[doc.templateKey]?.includes(doc.subject)) {
       await EmailTemplate.updateOne({ _id: doc._id }, { subject: current.subject });
       return { ...doc, subject: current.subject };
@@ -2877,8 +2908,8 @@ async function previewEmailTemplate(templateIdOrTrigger, overrides) {
 import { Types as Types3 } from "mongoose";
 
 // server/models/EmailLog.ts
-import mongoose13, { Schema as Schema12 } from "mongoose";
-var EmailLogSchema = new Schema12(
+import mongoose14, { Schema as Schema13 } from "mongoose";
+var EmailLogSchema = new Schema13(
   {
     templateKey: { type: String, index: true },
     triggerEvent: { type: String, required: true, index: true },
@@ -2893,10 +2924,10 @@ var EmailLogSchema = new Schema12(
       index: true
     },
     errorMessage: { type: String },
-    relatedComplaintId: { type: Schema12.Types.ObjectId, ref: "Complaint", index: true },
-    relatedCapaId: { type: Schema12.Types.ObjectId, ref: "Capa", index: true },
+    relatedComplaintId: { type: Schema13.Types.ObjectId, ref: "Complaint", index: true },
+    relatedCapaId: { type: Schema13.Types.ObjectId, ref: "Capa", index: true },
     sentBySystem: { type: Boolean, default: true },
-    payload: { type: Schema12.Types.Mixed },
+    payload: { type: Schema13.Types.Mixed },
     // Safe context for retry, NEVER credentials
     dedupeKey: { type: String, sparse: true, index: true },
     attemptCount: { type: Number, default: 1 }
@@ -2904,7 +2935,7 @@ var EmailLogSchema = new Schema12(
   { timestamps: true }
 );
 EmailLogSchema.index({ createdAt: -1 });
-var EmailLog = mongoose13.models.EmailLog || mongoose13.model("EmailLog", EmailLogSchema);
+var EmailLog = mongoose14.models.EmailLog || mongoose14.model("EmailLog", EmailLogSchema);
 
 // server/services/email-log.service.ts
 function sanitizePayload(rawPayload) {
@@ -3246,17 +3277,17 @@ function formatCapaNumber(complaintNumber, index, padding = 2) {
 }
 
 // server/models/Counter.ts
-import mongoose14, { Schema as Schema13 } from "mongoose";
-var CounterSchema = new Schema13(
+import mongoose15, { Schema as Schema14 } from "mongoose";
+var CounterSchema = new Schema14(
   {
     key: { type: String, required: true, unique: true, trim: true, index: true },
-    company: { type: Schema13.Types.ObjectId, ref: "Company", index: true },
+    company: { type: Schema14.Types.ObjectId, ref: "Company", index: true },
     financialYear: { type: String, trim: true },
     sequence: { type: Number, required: true, default: 0 }
   },
   { timestamps: true }
 );
-var Counter = mongoose14.models.Counter || mongoose14.model("Counter", CounterSchema);
+var Counter = mongoose15.models.Counter || mongoose15.model("Counter", CounterSchema);
 
 // server/services/numbering.service.ts
 var mongoCounterStore = {
@@ -3282,17 +3313,17 @@ async function nextCapaNumber(companyId, complaintNumber, sequence) {
 }
 
 // server/models/AuditLog.ts
-import mongoose15, { Schema as Schema14 } from "mongoose";
-var AuditLogSchema = new Schema14(
+import mongoose16, { Schema as Schema15 } from "mongoose";
+var AuditLogSchema = new Schema15(
   {
-    actor: { type: Schema14.Types.ObjectId, ref: "User", index: true },
+    actor: { type: Schema15.Types.ObjectId, ref: "User", index: true },
     actorName: { type: String, trim: true },
     action: { type: String, required: true, trim: true, index: true },
     entity: { type: String, required: true, trim: true, index: true },
     entityId: { type: String, trim: true, index: true },
-    before: Schema14.Types.Mixed,
-    after: Schema14.Types.Mixed,
-    metadata: Schema14.Types.Mixed
+    before: Schema15.Types.Mixed,
+    after: Schema15.Types.Mixed,
+    metadata: Schema15.Types.Mixed
   },
   { timestamps: true }
 );
@@ -3301,7 +3332,7 @@ AuditLogSchema.index({ entityId: 1, createdAt: -1 });
 AuditLogSchema.index({ entity: 1, createdAt: -1 });
 AuditLogSchema.index({ action: 1, createdAt: -1 });
 AuditLogSchema.index({ actor: 1, createdAt: -1 });
-var AuditLog = mongoose15.models.AuditLog || mongoose15.model("AuditLog", AuditLogSchema);
+var AuditLog = mongoose16.models.AuditLog || mongoose16.model("AuditLog", AuditLogSchema);
 
 // server/services/audit.service.ts
 async function writeAudit(input) {
@@ -3556,6 +3587,8 @@ async function getComplaintDetail(complaintId, user) {
     Department.find({ _id: { $in: [internalDept, againstDept, responsibleDept].filter(Boolean) } }).select("name").lean()
   ]);
   const departmentName = (id2) => id2 ? departments.find((entry) => String(entry._id) === String(id2))?.name : void 0;
+  const closedAt = context.doc.closedAt;
+  const checksDone = closedAt ? await EffectivenessCheck.countDocuments({ complaint: context.doc._id, closedAt }) : 0;
   return {
     complaint: {
       ...context.doc.toObject(),
@@ -3566,10 +3599,7 @@ async function getComplaintDetail(complaintId, user) {
       responsibleDeptName: departmentName(responsibleDept),
       ownerName: ownerUser?.name,
       ownerEmployeeName: ownerEmployee?.name,
-      effectivenessReviewDue: effectivenessReviewDue({
-        capaCompletedAts: capas.map((capa) => capa.completedAt),
-        closedAt: context.doc.closedAt
-      })
+      effectivenessNextDue: closedAt ? nextReviewDue(closedAt, checksDone) : null
     },
     capas,
     tat: buildTatPlan(context.domain, tatConfig),
@@ -4922,8 +4952,8 @@ import { Router as Router2 } from "express";
 import { z as z6 } from "zod";
 
 // server/models/Attachment.ts
-import mongoose16, { Schema as Schema15 } from "mongoose";
-var AttachmentSchema = new Schema15(
+import mongoose17, { Schema as Schema16 } from "mongoose";
+var AttachmentSchema = new Schema16(
   {
     publicId: { type: String, required: true, trim: true, index: true },
     secureUrl: { type: String, required: true, trim: true },
@@ -4934,16 +4964,16 @@ var AttachmentSchema = new Schema15(
     width: Number,
     height: Number,
     entityType: { type: String, required: true, trim: true, index: true },
-    entityId: { type: Schema15.Types.ObjectId, required: true, index: true },
+    entityId: { type: Schema16.Types.ObjectId, required: true, index: true },
     purpose: { type: String, enum: ATTACHMENT_PURPOSES, required: true, index: true },
-    company: { type: Schema15.Types.ObjectId, ref: "Company", index: true },
-    uploadedBy: { type: Schema15.Types.ObjectId, ref: "User", index: true },
+    company: { type: Schema16.Types.ObjectId, ref: "Company", index: true },
+    uploadedBy: { type: Schema16.Types.ObjectId, ref: "User", index: true },
     uploadedAt: { type: Date, default: Date.now }
   },
   { timestamps: true }
 );
 AttachmentSchema.index({ entityType: 1, entityId: 1, purpose: 1 });
-var Attachment = mongoose16.models.Attachment || mongoose16.model("Attachment", AttachmentSchema);
+var Attachment = mongoose17.models.Attachment || mongoose17.model("Attachment", AttachmentSchema);
 
 // server/services/attachment.service.ts
 import { v2 as cloudinary } from "cloudinary";
@@ -6174,21 +6204,21 @@ var overallEffectivenessSchema = z10.object({
 });
 
 // server/models/ComplaintNote.ts
-import mongoose17, { Schema as Schema16 } from "mongoose";
-var ComplaintNoteSchema = new Schema16(
+import mongoose18, { Schema as Schema17 } from "mongoose";
+var ComplaintNoteSchema = new Schema17(
   {
-    complaint: { type: Schema16.Types.ObjectId, ref: "Complaint", required: true, index: true },
-    company: { type: Schema16.Types.ObjectId, ref: "Company", required: true, index: true },
+    complaint: { type: Schema17.Types.ObjectId, ref: "Complaint", required: true, index: true },
+    company: { type: Schema17.Types.ObjectId, ref: "Company", required: true, index: true },
     kind: { type: String, enum: NOTE_KINDS, default: "Note", index: true },
     referenceDate: { type: Date, default: null },
     content: { type: String, required: true, trim: true },
-    createdBy: { type: Schema16.Types.ObjectId, ref: "User", index: true },
+    createdBy: { type: Schema17.Types.ObjectId, ref: "User", index: true },
     createdByName: { type: String, trim: true }
   },
   { timestamps: true }
 );
 ComplaintNoteSchema.index({ complaint: 1, createdAt: -1 });
-var ComplaintNote = mongoose17.models.ComplaintNote || mongoose17.model("ComplaintNote", ComplaintNoteSchema);
+var ComplaintNote = mongoose18.models.ComplaintNote || mongoose18.model("ComplaintNote", ComplaintNoteSchema);
 
 // server/routes/complaint.routes.ts
 var complaintRouter = Router6();
@@ -6659,7 +6689,7 @@ configurationRouter.delete(
 
 // server/routes/health.routes.ts
 import { Router as Router8 } from "express";
-import mongoose18 from "mongoose";
+import mongoose19 from "mongoose";
 var healthRouter = Router8();
 healthRouter.get(
   "/",
@@ -6673,7 +6703,7 @@ healthRouter.get(
   "/db",
   asyncHandler(async (_req, res) => {
     await connectDB();
-    return ok(res, { status: mongoose18.connection.readyState === 1 ? "connected" : "not-connected" });
+    return ok(res, { status: mongoose19.connection.readyState === 1 ? "connected" : "not-connected" });
   })
 );
 
@@ -7844,8 +7874,8 @@ masterAdminRouter.delete(
 import { Router as Router11 } from "express";
 
 // server/models/Permission.ts
-import mongoose19, { Schema as Schema17 } from "mongoose";
-var PermissionSchema = new Schema17(
+import mongoose20, { Schema as Schema18 } from "mongoose";
+var PermissionSchema = new Schema18(
   {
     key: { type: String, required: true, unique: true, trim: true, index: true },
     label: { type: String, required: true, trim: true },
@@ -7854,7 +7884,7 @@ var PermissionSchema = new Schema17(
   },
   { timestamps: true }
 );
-var Permission = mongoose19.models.Permission || mongoose19.model("Permission", PermissionSchema);
+var Permission = mongoose20.models.Permission || mongoose20.model("Permission", PermissionSchema);
 
 // server/routes/master.routes.ts
 var masterRouter = Router11();
@@ -8397,22 +8427,25 @@ function requireCronAuth(req, _res, next) {
 }
 
 // server/services/reminder.service.ts
+var MAX_EFFECTIVENESS_REMINDERS_PER_RUN = 25;
 async function processEffectivenessReviewReminders(now) {
   let sent = 0;
-  const pending = await Complaint.find({
-    $or: [{ "overallEffectiveness.result": "" }, { "overallEffectiveness.result": null }, { "overallEffectiveness.result": { $exists: false } }]
-  }).select("number customer product description closedAt owner ownerEmployee").populate("owner", "name").populate("ownerEmployee", "name email").lean();
-  if (pending.length === 0) return 0;
-  const capas = await Capa.find({ complaint: { $in: pending.map((entry) => entry._id) }, completedAt: { $ne: null } }).select("complaint completedAt").lean();
-  const completedByComplaint = /* @__PURE__ */ new Map();
-  for (const capa of capas) {
-    const key = String(capa.complaint);
-    completedByComplaint.set(key, [...completedByComplaint.get(key) ?? [], capa.completedAt]);
+  const closed = await Complaint.find({ status: "Closed", closedAt: { $ne: null } }).select("number customer product description closedAt owner ownerEmployee").populate("owner", "name").populate("ownerEmployee", "name email").lean();
+  if (closed.length === 0) return 0;
+  const checks = await EffectivenessCheck.find({ complaint: { $in: closed.map((entry) => entry._id) } }).select("complaint closedAt").lean();
+  const checkClosures = /* @__PURE__ */ new Map();
+  for (const check of checks) {
+    const key = String(check.complaint);
+    checkClosures.set(key, [...checkClosures.get(key) ?? [], check.closedAt.getTime()]);
   }
-  for (const complaint of pending) {
-    const due = effectivenessReviewDue({ capaCompletedAts: completedByComplaint.get(String(complaint._id)) ?? [], closedAt: complaint.closedAt });
-    if (!due) continue;
-    const daysLeft = daysUntil(due, now);
+  const due = closed.map((complaint) => {
+    const closedAt = new Date(complaint.closedAt);
+    const done = (checkClosures.get(String(complaint._id)) ?? []).filter((time) => time === closedAt.getTime()).length;
+    const dueAt = nextReviewDue(closedAt, done);
+    return { complaint, cycle: done + 1, dueAt, daysLeft: daysUntil(dueAt, now) };
+  }).sort((a, b) => a.dueAt.getTime() - b.dueAt.getTime());
+  for (const { complaint, cycle, dueAt, daysLeft } of due) {
+    if (sent >= MAX_EFFECTIVENESS_REMINDERS_PER_RUN) break;
     const bucket = effectivenessReminderBucket(daysLeft);
     if (!bucket) continue;
     const employee = complaint.ownerEmployee;
@@ -8425,16 +8458,16 @@ async function processEffectivenessReviewReminders(now) {
     const res = await sendTemplatedEmail({
       triggerEvent: "EFFECTIVENESS_REVIEW_DUE",
       recipients,
-      dedupeKey: `EFFREV_${complaint._id}_${bucket.key}`,
+      dedupeKey: `EFFREV_${complaint._id}_${cycle}_${bucket.key}`,
       relatedComplaintId: complaint._id,
       data: {
         complaintNumber: complaint.number,
         customerName: complaint.customer || complaint.product || complaint.description?.slice(0, 80) || "Internal Issue",
-        dueDate: due.toLocaleDateString("en-IN"),
+        dueDate: dueAt.toLocaleDateString("en-IN"),
         ownerName: employee?.name || complaint.owner?.name || "Assigned Owner",
         statusLabel: bucket.overdue ? "OVERDUE" : daysLeft === 0 ? "Due Today" : "Upcoming",
-        timingText: bucket.overdue ? `overdue by ${-daysLeft} day(s)` : daysLeft === 0 ? "due today" : `due in ${daysLeft} day(s), on ${due.toLocaleDateString("en-IN")}`,
-        actionUrl: `/complaints/${complaint._id}`
+        timingText: bucket.overdue ? `overdue by ${-daysLeft} day(s)` : daysLeft === 0 ? "due today" : `due in ${daysLeft} day(s), on ${dueAt.toLocaleDateString("en-IN")}`,
+        actionUrl: "/effectiveness"
       }
     });
     if (res.status === "sent") sent++;
@@ -8778,6 +8811,181 @@ cronRouter.post(
   })
 );
 
+// server/routes/effectiveness.routes.ts
+import { Router as Router15 } from "express";
+import { z as z19 } from "zod";
+
+// server/services/effectiveness.service.ts
+import { Types as Types12 } from "mongoose";
+var TRACKER_LIMIT = 5e3;
+function toCheckInfo(check) {
+  return {
+    cycle: check.cycle,
+    result: check.result,
+    remarks: check.remarks ?? "",
+    checkedAt: check.checkedAt,
+    checkedByName: check.checkedByName ?? ""
+  };
+}
+function canRecordCheck(actor) {
+  return isMasterAdmin(actor) || ["capa.verify", "8d.approve", "complaint.close", "complaint.assign"].some((permission) => hasPermission(actor, permission));
+}
+async function listEffectivenessTracker(query, user) {
+  const actor = await requireActor(user);
+  if (!hasPermission(actor, "view.all") && !hasPermission(actor, "view.company")) {
+    throw httpError(403, "You do not have permission to view complaints");
+  }
+  const filter = { status: "Closed", closedAt: { $ne: null } };
+  if (!hasPermission(actor, "view.all")) filter.company = { $in: actor.companyIds.map((id2) => new Types12.ObjectId(id2)) };
+  if (query.company) {
+    if (!canSeeCompany(actor, query.company)) throw httpError(403, "You do not have access to this company");
+    filter.company = new Types12.ObjectId(query.company);
+  }
+  if (query.search) {
+    const regex = new RegExp(query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+    filter.$or = [{ number: regex }, { customer: regex }, { product: regex }];
+  }
+  const complaints = await Complaint.find(filter).select("number type company customer product category responsibleDept owner ownerEmployee closedAt").populate("company", "name code").populate("responsibleDept", "name").populate("owner", "name").populate("ownerEmployee", "name").limit(TRACKER_LIMIT).lean();
+  const checks = await EffectivenessCheck.find({ complaint: { $in: complaints.map((entry) => entry._id) } }).sort({ cycle: 1 }).lean();
+  const checksByComplaint = /* @__PURE__ */ new Map();
+  for (const check of checks) {
+    const key = String(check.complaint);
+    checksByComplaint.set(key, [...checksByComplaint.get(key) ?? [], check]);
+  }
+  const now = /* @__PURE__ */ new Date();
+  const rows = complaints.map((complaint) => {
+    const closedAt = new Date(complaint.closedAt);
+    const current = (checksByComplaint.get(String(complaint._id)) ?? []).filter((check) => check.closedAt.getTime() === closedAt.getTime());
+    const last = current[current.length - 1];
+    const nextDue = nextReviewDue(closedAt, current.length);
+    const daysLeft = daysUntil(nextDue, now);
+    return {
+      _id: String(complaint._id),
+      number: complaint.number,
+      type: complaint.type,
+      company: complaint.company,
+      customer: complaint.customer ?? "",
+      product: complaint.product ?? "",
+      category: complaint.category ?? "",
+      responsibleDept: complaint.responsibleDept?.name ?? "",
+      owner: complaint.ownerEmployee?.name ?? complaint.owner?.name ?? "",
+      closedAt,
+      checksDone: current.length,
+      lastCheck: last ? toCheckInfo(last) : null,
+      nextDue,
+      daysLeft,
+      status: reviewStatus(daysLeft)
+    };
+  });
+  const summary = {
+    total: rows.length,
+    overdue: rows.filter((row) => row.status === "Overdue").length,
+    dueSoon: rows.filter((row) => row.status === "Due Soon").length,
+    upcoming: rows.filter((row) => row.status === "Upcoming").length
+  };
+  const visible = (query.status ? rows.filter((row) => row.status === query.status) : rows).sort(
+    (a, b) => a.nextDue.getTime() - b.nextDue.getTime()
+  );
+  const start = (query.page - 1) * query.pageSize;
+  return {
+    items: visible.slice(start, start + query.pageSize),
+    page: query.page,
+    pageSize: query.pageSize,
+    total: visible.length,
+    totalPages: Math.max(1, Math.ceil(visible.length / query.pageSize)),
+    summary,
+    canRecord: canRecordCheck(actor)
+  };
+}
+async function listEffectivenessChecks(complaintId, user) {
+  const context = await loadComplaintContext(complaintId, user);
+  if (!context.doc.closedAt) return [];
+  const checks = await EffectivenessCheck.find({ complaint: context.doc._id, closedAt: context.doc.closedAt }).sort({ cycle: 1 }).lean();
+  return checks.map((check) => ({
+    _id: String(check._id),
+    dueAt: check.dueAt,
+    ...toCheckInfo(check)
+  }));
+}
+async function recordEffectivenessCheck(complaintId, input, user) {
+  const context = await loadComplaintContext(complaintId, user);
+  const { doc, actor } = context;
+  if (!canRecordCheck(actor)) throw httpError(403, "You do not have permission to record effectiveness checks");
+  if (doc.status !== "Closed" || !doc.closedAt) {
+    throw httpError(409, "Only a closed complaint has periodic effectiveness checks");
+  }
+  const closedAt = doc.closedAt;
+  const done = await EffectivenessCheck.countDocuments({ complaint: doc._id, closedAt });
+  let check;
+  try {
+    check = await EffectivenessCheck.create({
+      complaint: doc._id,
+      closedAt,
+      cycle: done + 1,
+      dueAt: nextReviewDue(closedAt, done),
+      result: input.result,
+      remarks: input.remarks,
+      checkedAt: input.checkedAt ?? /* @__PURE__ */ new Date(),
+      checkedBy: new Types12.ObjectId(actor.id),
+      checkedByName: actor.name
+    });
+  } catch (error) {
+    if (error.code === 11e3) throw httpError(409, "This check was just recorded by someone else. Refresh and try again.");
+    throw error;
+  }
+  await writeAudit({
+    actor: user,
+    action: "UPDATE",
+    entity: "EffectivenessCheck",
+    entityId: String(check._id),
+    after: { complaint: doc.number, cycle: check.cycle, result: check.result }
+  });
+  if (input.result === "Not Sustained") {
+    await reopenComplaint(complaintId, `Effectiveness check ${check.cycle}: closure actions not sustained. ${input.remarks}`, user, { system: true });
+  }
+  return check;
+}
+
+// server/routes/effectiveness.routes.ts
+var effectivenessRouter = Router15();
+effectivenessRouter.use(requireUser);
+var trackerQuery = z19.object({
+  page: z19.coerce.number().int().min(1).default(1),
+  pageSize: z19.coerce.number().int().min(1).max(100).default(25),
+  status: z19.enum(["Upcoming", "Due Soon", "Overdue"]).optional(),
+  search: z19.string().trim().max(160).optional(),
+  company: objectIdSchema.optional()
+});
+var checkInput = z19.object({
+  result: z19.enum(EFFECTIVENESS_CHECK_RESULTS),
+  remarks: z19.string().trim().min(5, "Remarks are required (at least 5 characters)").max(2e3),
+  checkedAt: z19.coerce.date().optional()
+});
+effectivenessRouter.get(
+  "/",
+  asyncHandler(async (req, res) => {
+    const query = trackerQuery.parse(req.query);
+    await connectDB();
+    return ok(res, await listEffectivenessTracker(query, req.user));
+  })
+);
+effectivenessRouter.get(
+  "/:complaintId/checks",
+  asyncHandler(async (req, res) => {
+    await connectDB();
+    return ok(res, { checks: await listEffectivenessChecks(req.params.complaintId, req.user) });
+  })
+);
+effectivenessRouter.post(
+  "/:complaintId/checks",
+  asyncHandler(async (req, res) => {
+    const input = checkInput.parse(req.body);
+    await connectDB();
+    const check = await recordEffectivenessCheck(req.params.complaintId, input, req.user);
+    return ok(res, { check }, 201);
+  })
+);
+
 // server/app.ts
 function createApp() {
   const app = express();
@@ -8820,6 +9028,7 @@ function createApp() {
   app.use("/api/audit", auditRouter);
   app.use("/api/analytics", analyticsRouter);
   app.use("/api/reports", reportRouter);
+  app.use("/api/effectiveness", effectivenessRouter);
   app.use("/api/import", importRouter);
   app.use("/api/email", emailRouter);
   app.use("/api/cron", cronRouter);

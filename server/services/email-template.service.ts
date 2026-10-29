@@ -1,7 +1,7 @@
 import { Types } from "mongoose";
 import { connectDB } from "../config/db";
 import { EmailTemplate } from "../models/EmailTemplate";
-import { DEFAULT_EMAIL_TEMPLATES, SUPERSEDED_DEFAULT_SUBJECTS } from "../lib/email-template-defaults";
+import { DEFAULT_EMAIL_TEMPLATES, SUPERSEDED_DEFAULT_BODY_MARKERS, SUPERSEDED_DEFAULT_SUBJECTS } from "../lib/email-template-defaults";
 import {
   getSampleVariables,
   renderTemplate,
@@ -85,6 +85,12 @@ export async function getActiveTemplateByTrigger(triggerEvent: string): Promise<
   if (doc) {
     // Upgrade a never-edited template that still has an old, overly long default subject.
     const current = DEFAULT_EMAIL_TEMPLATES.find((t) => t.templateKey === doc.templateKey);
+    const marker = SUPERSEDED_DEFAULT_BODY_MARKERS[doc.templateKey];
+    if (current && marker && doc.htmlBody.includes(marker)) {
+      const upgrade = { subject: current.subject, htmlBody: current.htmlBody, textBody: current.textBody, supportedVariables: current.supportedVariables };
+      await EmailTemplate.updateOne({ _id: doc._id }, upgrade);
+      return { ...doc, ...upgrade };
+    }
     if (current && SUPERSEDED_DEFAULT_SUBJECTS[doc.templateKey]?.includes(doc.subject)) {
       await EmailTemplate.updateOne({ _id: doc._id }, { subject: current.subject });
       return { ...doc, subject: current.subject };

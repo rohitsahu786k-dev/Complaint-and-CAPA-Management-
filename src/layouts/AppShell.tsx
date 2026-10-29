@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Bell,
   BookOpen,
+  CalendarCheck,
   ClipboardList,
   Database,
   FileBarChart,
@@ -55,7 +56,8 @@ const NAV: NavGroup[] = [
     items: [
       { to: "/complaints", label: "Complaints", icon: ClipboardList, visible: canView },
       { to: "/tat", label: "TAT Dashboard", icon: Timer, visible: canView },
-      { to: "/repeat", label: "Repeat Analysis", icon: Repeat2, visible: canView }
+      { to: "/repeat", label: "Repeat Analysis", icon: Repeat2, visible: canView },
+      { to: "/effectiveness", label: "Effectiveness Tracker", icon: CalendarCheck, visible: canView }
     ]
   },
   {

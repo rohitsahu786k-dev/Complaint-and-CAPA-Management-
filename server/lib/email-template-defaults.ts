@@ -28,6 +28,14 @@ export const SUPERSEDED_DEFAULT_SUBJECTS: Record<string, string[]> = {
   "effectiveness-review-due": ["{{statusLabel}}: Effectiveness Review for Complaint {{complaintNumber}} (Due {{dueDate}})"]
 };
 
+/**
+ * A phrase unique to an earlier default body. A stored template whose HTML still contains it was
+ * never rewritten by an administrator, so its subject and bodies are replaced by the current default.
+ */
+export const SUPERSEDED_DEFAULT_BODY_MARKERS: Record<string, string> = {
+  "effectiveness-review-due": "The 6-month effectiveness review for"
+};
+
 export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
   // ==================== AUTH ====================
   {
@@ -485,18 +493,18 @@ export const DEFAULT_EMAIL_TEMPLATES: DefaultEmailTemplate[] = [
     subject: "{{statusLabel}}: Effectiveness Review {{complaintNumber}}",
     htmlBody: wrapEmailLayout(
       `${greeting()}${heading("Effectiveness Review {{statusLabel}}")}` +
-        `<p style="margin:0 0 12px;">The 6-month effectiveness review for <strong>Complaint {{complaintNumber}}</strong> is {{timingText}}. Please confirm that the root causes are eliminated and no repeat failure has occurred, then record the overall effectiveness result.</p>` +
+        `<p style="margin:0 0 12px;">The periodic effectiveness check for <strong>Complaint {{complaintNumber}}</strong> (every 6 months after closure) is {{timingText}}. Please verify that the closure actions are still being followed, then record the check in the Effectiveness Tracker.</p>` +
         infoTable(
           infoRow("Complaint No.", "{{complaintNumber}}") +
             infoRow("Customer / Issue", "{{customerName}}") +
-            infoRow("Review Due", "{{dueDate}}") +
+            infoRow("Check Due", "{{dueDate}}") +
             infoRow("Owner", "{{ownerName}}")
         ) +
-        emailButton("{{actionUrl}}", "Open Effectiveness Review") +
+        emailButton("{{actionUrl}}", "Open Effectiveness Tracker") +
         closing()
     ),
     textBody:
-      "Hello {{recipientName}},\n\nThe 6-month effectiveness review for complaint {{complaintNumber}} is {{timingText}}.\n\nCustomer / Issue: {{customerName}}\nReview due: {{dueDate}}\nOwner: {{ownerName}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
+      "Hello {{recipientName}},\n\nThe periodic effectiveness check for complaint {{complaintNumber}} (every 6 months after closure) is {{timingText}}. Please verify that the closure actions are still being followed and record the check in the Effectiveness Tracker.\n\nCustomer / Issue: {{customerName}}\nCheck due: {{dueDate}}\nOwner: {{ownerName}}\n\nOpen: {{actionUrl}}\n\nRegards,\n{{companyName}}",
     supportedVariables: ["recipientName", "complaintNumber", "customerName", "dueDate", "ownerName", "statusLabel", "timingText", "actionUrl", "companyName"]
   },
   {

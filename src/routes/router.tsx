@@ -39,6 +39,9 @@ const TatDashboardPage = lazy(() =>
 const RepeatAnalysisPage = lazy(() =>
   import("@/routes/app/RepeatAnalysisPage").then((m) => ({ default: m.RepeatAnalysisPage }))
 );
+const EffectivenessTrackerPage = lazy(() =>
+  import("@/routes/app/EffectivenessTrackerPage").then((m) => ({ default: m.EffectivenessTrackerPage }))
+);
 const AuditTrailPage = lazy(() =>
   import("@/routes/app/AuditTrailPage").then((m) => ({ default: m.AuditTrailPage }))
 );
@@ -130,6 +133,14 @@ export const router = createBrowserRouter([
             element: (
               <Suspense fallback={<PageLoader />}>
                 <RepeatAnalysisPage />
+              </Suspense>
+            )
+          },
+          {
+            path: "effectiveness",
+            element: (
+              <Suspense fallback={<PageLoader />}>
+                <EffectivenessTrackerPage />
               </Suspense>
             )
           },

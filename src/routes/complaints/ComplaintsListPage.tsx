@@ -114,12 +114,15 @@ export function ComplaintsListPage() {
         </span>
       )
     },
-    { key: "customer", header: "Customer / Product", render: (row) => row.customer || row.product || "—" },
-    { key: "category", header: "Category", render: (row) => row.category || "—" },
-    { key: "responsibleDept", header: "Department", render: (row) => row.responsibleDept?.name ?? "—", hideOnMobile: true },
-    { key: "priority", header: "Priority", render: (row) => row.priority?.name ?? "—" },
-    { key: "owner", header: "Owner", render: (row) => row.ownerEmployee?.name ?? row.owner?.name ?? "—", hideOnMobile: true },
-    { key: "receivedAt", header: "Received", sortable: true, render: (row) => formatDate(row.receivedAt) },
+    {
+      key: "customer",
+      header: "Customer / Product",
+      render: (row) => (
+        <span className="block max-w-[18rem] truncate" title={row.customer || row.product || undefined}>
+          {row.customer || row.product || "—"}
+        </span>
+      )
+    },
     {
       key: "status",
       header: "Status",
@@ -129,7 +132,12 @@ export function ComplaintsListPage() {
           {row.isRepeat ? <StatusBadge tone="red">Repeat</StatusBadge> : null}
         </span>
       )
-    }
+    },
+    { key: "category", header: "Category", render: (row) => row.category || "—" },
+    { key: "responsibleDept", header: "Department", render: (row) => row.responsibleDept?.name ?? "—", hideOnMobile: true },
+    { key: "priority", header: "Priority", render: (row) => row.priority?.name ?? "—" },
+    { key: "owner", header: "Owner", render: (row) => row.ownerEmployee?.name ?? row.owner?.name ?? "—", hideOnMobile: true },
+    { key: "receivedAt", header: "Received", sortable: true, render: (row) => formatDate(row.receivedAt) }
   ];
 
   async function exportFiltered() {

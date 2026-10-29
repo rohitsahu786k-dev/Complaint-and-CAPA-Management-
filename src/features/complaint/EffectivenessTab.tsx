@@ -259,8 +259,8 @@ export function EffectivenessTab({
       <SectionCard
         title="Overall Complaint Effectiveness Review"
         description={`Final holistic confirmation that the root causes have been eliminated and no repeat failure has occurred.${
-          complaint.effectivenessReviewDue && !complaint.overallEffectiveness?.result
-            ? ` Review due ${formatDate(complaint.effectivenessReviewDue)} (6 months after the last CAPA); reminders are emailed automatically.`
+          complaint.effectivenessNextDue
+            ? ` Next periodic check due ${formatDate(complaint.effectivenessNextDue)} (every 6 months after closure); reminders are emailed automatically. Record it in the Effectiveness Tracker.`
             : ""
         }`}
       >

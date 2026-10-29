@@ -268,7 +268,7 @@ export type ComplaintDetail = {
   responsibleDeptName?: string;
   ownerName?: string;
   ownerEmployeeName?: string;
-  effectivenessReviewDue?: string | null;
+  effectivenessNextDue?: string | null;
   responsibleDept?: string;
   internalDept?: string;
   againstDept?: string;
@@ -418,6 +418,57 @@ export type NoteRecord = {
 
 export function useNotes(complaintId: string | undefined) {
   return useApiQuery<{ notes: NoteRecord[] }>(["notes", complaintId], `/api/complaints/${complaintId}/notes`, { enabled: Boolean(complaintId) });
+}
+
+/* ------------------------------------------------------------------ effectiveness tracker */
+
+export type EffectivenessStatus = "Upcoming" | "Due Soon" | "Overdue";
+
+export type EffectivenessCheckInfo = {
+  cycle: number;
+  result: "Sustained" | "Not Sustained";
+  remarks: string;
+  checkedAt: string;
+  checkedByName: string;
+};
+
+export type EffectivenessRow = {
+  _id: string;
+  number: string;
+  type: "External" | "Internal";
+  company?: { _id: string; name: string; code: string } | null;
+  customer: string;
+  product: string;
+  category: string;
+  responsibleDept: string;
+  owner: string;
+  closedAt: string;
+  checksDone: number;
+  lastCheck: EffectivenessCheckInfo | null;
+  nextDue: string;
+  daysLeft: number;
+  status: EffectivenessStatus;
+};
+
+export type EffectivenessTrackerResponse = Paginated<EffectivenessRow> & {
+  summary: { total: number; overdue: number; dueSoon: number; upcoming: number };
+  canRecord: boolean;
+};
+
+export function useEffectivenessTracker(params: Record<string, QueryValue>) {
+  return useApiQuery<EffectivenessTrackerResponse>(["effectiveness", params], `/api/effectiveness${buildQuery(params)}`, {
+    placeholderData: (previous) => previous
+  });
+}
+
+export type EffectivenessCheckRecord = EffectivenessCheckInfo & { _id: string; dueAt: string };
+
+export function useEffectivenessChecks(complaintId: string | undefined) {
+  return useApiQuery<{ checks: EffectivenessCheckRecord[] }>(
+    ["effectiveness", "checks", complaintId],
+    `/api/effectiveness/${complaintId}/checks`,
+    { enabled: Boolean(complaintId) }
+  );
 }
 
 export type AuditEntry = {
