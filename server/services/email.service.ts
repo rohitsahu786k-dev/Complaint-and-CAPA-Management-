@@ -2,6 +2,7 @@ import { Types } from "mongoose";
 import { getAppUrl } from "../lib/app-url";
 import { DEFAULT_EMAIL_LOGO_URL } from "../lib/email-layout";
 import { escapeHtml, renderTemplate } from "../lib/email-template-renderer";
+import { EXTERNAL_ADDRESS_MESSAGE, splitByEmailPolicy } from "../lib/email-policy";
 import { createTransporter, fromAddress, isSmtpConfigured } from "../lib/mailer";
 import { resolveDepartmentCc, resolveRecipientChainCc } from "./email-recipient.service";
 import { getActiveTemplateByTrigger } from "./email-template.service";
@@ -55,7 +56,28 @@ function appendTemporaryPasswordNotice(html: string, text: string, data: Record<
   return { html: nextHtml, text: nextText };
 }
 
+/** Leaves a visible trace in the email log whenever an outside address was refused. */
+async function recordBlockedAddresses(input: SendTemplatedEmailInput, blocked: string[]) {
+  await writeEmailLog({
+    triggerEvent: input.triggerEvent,
+    recipients: blocked,
+    status: "skipped",
+    errorMessage: `Blocked ${blocked.length} external address(es). ${EXTERNAL_ADDRESS_MESSAGE()}.`,
+    relatedComplaintId: input.relatedComplaintId,
+    relatedCapaId: input.relatedCapaId,
+    sentBySystem: input.sentBySystem !== undefined ? input.sentBySystem : true
+  }).catch(() => undefined);
+}
+
 export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promise<SendEmailResult> {
+  // Portal emails are internal only: a customer or any outside address is dropped before anything is sent.
+  const toPolicy = splitByEmailPolicy(input.recipients);
+  const ccPolicy = splitByEmailPolicy(input.cc);
+  const bccPolicy = splitByEmailPolicy(input.bcc);
+  const blockedOnEntry = [...toPolicy.blocked, ...ccPolicy.blocked, ...bccPolicy.blocked];
+  input = { ...input, recipients: toPolicy.allowed, cc: ccPolicy.allowed, bcc: bccPolicy.allowed };
+  if (blockedOnEntry.length > 0) await recordBlockedAddresses(input, blockedOnEntry);
+
   if (input.dedupeKey) {
     const alreadySent = await hasDedupeKeyBeenSent(input.dedupeKey);
     if (alreadySent) {
@@ -120,7 +142,10 @@ export async function sendTemplatedEmail(input: SendTemplatedEmailInput): Promis
   const ccList = Array.from(
     new Set([...(input.cc ?? []), ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
   ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
-  input = { ...input, cc: ccList };
+  // The Manager, HOD and Management addresses above come from the directory, so they are checked too.
+  const finalCc = splitByEmailPolicy(ccList);
+  if (finalCc.blocked.length > 0) await recordBlockedAddresses(input, finalCc.blocked);
+  input = { ...input, cc: finalCc.allowed };
 
   const appUrl = getAppUrl();
   const today =new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
@@ -239,6 +264,7 @@ export async function retryEmail(logId: string): Promise<SendEmailResult> {
 
 export async function sendRawTestEmail(input: { to: string; subject?: string; message?: string }): Promise<SendEmailResult> {
   if (!isSmtpConfigured()) throw httpError(400, "SMTP credentials are not configured on this server");
+  if (splitByEmailPolicy([input.to]).allowed.length === 0) throw httpError(400, EXTERNAL_ADDRESS_MESSAGE());
 
   const subject = input.subject || "ONEPWS Portal - SMTP Test Email";
   const appUrl = getAppUrl();

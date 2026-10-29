@@ -25,6 +25,7 @@ import { retryEmail, sendRawTestEmail, sendTemplatedEmail } from "../services/em
 import { processEscalations } from "../services/escalation.service";
 import { loadComplaintContext } from "../services/complaint.service";
 import { getAppUrl } from "../lib/app-url";
+import { EXTERNAL_ADDRESS_MESSAGE, isInternalAddress } from "../lib/email-policy";
 
 export const emailRouter = Router();
 
@@ -184,6 +185,8 @@ emailRouter.post(
       permissions.includes("8d.approve") ||
       permissions.includes("complaint.assign");
     if (!allowedToShare) throw httpError(403, "You do not have permission to share complaint reports");
+    // Reports carry customer and defect details, so they are shared with company addresses only.
+    if (!isInternalAddress(input.recipientEmail)) throw httpError(400, EXTERNAL_ADDRESS_MESSAGE());
 
     const context = await loadComplaintContext(input.complaintId, req.user);
     const complaint = context.doc;

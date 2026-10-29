@@ -25,7 +25,9 @@ var envSchema = z.object({
   SMTP_APP_PASSWORD: z.string().optional(),
   SMTP_FROM_EMAIL: z.string().optional(),
   SMTP_FROM_NAME: z.string().default("ONEPWS Complaint & CAPA Portal"),
-  CRON_SECRET: z.string().optional()
+  CRON_SECRET: z.string().optional(),
+  /** Comma-separated company email domains that may receive portal emails. Defaults to onepws.com. */
+  EMAIL_ALLOWED_DOMAINS: z.string().optional()
 });
 var cachedEnv = null;
 function getEnv() {
@@ -1892,6 +1894,28 @@ function getSampleVariables(triggerEvent) {
   return complaintVars;
 }
 
+// server/lib/email-policy.ts
+var DEFAULT_ALLOWED_DOMAINS = ["onepws.com"];
+function allowedEmailDomains() {
+  const configured = (process.env.EMAIL_ALLOWED_DOMAINS ?? "").split(/[,;\s]+/).map((domain) => domain.trim().toLowerCase().replace(/^@/, "")).filter(Boolean);
+  return configured.length > 0 ? configured : DEFAULT_ALLOWED_DOMAINS;
+}
+function isInternalAddress(email) {
+  const address = email.trim().toLowerCase();
+  if (!/^[^\s@<>,;"']+@[^\s@<>,;"']+$/.test(address)) return false;
+  return allowedEmailDomains().includes(address.slice(address.lastIndexOf("@") + 1));
+}
+function splitByEmailPolicy(addresses) {
+  const allowed = [];
+  const blocked = [];
+  for (const address of addresses ?? []) {
+    if (!address || !address.trim()) continue;
+    (isInternalAddress(address) ? allowed : blocked).push(address);
+  }
+  return { allowed, blocked };
+}
+var EXTERNAL_ADDRESS_MESSAGE = () => `Only company addresses (${allowedEmailDomains().map((domain) => `@${domain}`).join(", ")}) can receive portal emails`;
+
 // server/lib/mailer.ts
 import nodemailer from "nodemailer";
 function isSmtpConfigured() {
@@ -3066,7 +3090,24 @@ Temporary password: ${tempPassword}${resetUrl ? `
 Create a new password: ${resetUrl}` : ""}`;
   return { html: nextHtml, text: nextText };
 }
+async function recordBlockedAddresses(input, blocked) {
+  await writeEmailLog({
+    triggerEvent: input.triggerEvent,
+    recipients: blocked,
+    status: "skipped",
+    errorMessage: `Blocked ${blocked.length} external address(es). ${EXTERNAL_ADDRESS_MESSAGE()}.`,
+    relatedComplaintId: input.relatedComplaintId,
+    relatedCapaId: input.relatedCapaId,
+    sentBySystem: input.sentBySystem !== void 0 ? input.sentBySystem : true
+  }).catch(() => void 0);
+}
 async function sendTemplatedEmail(input) {
+  const toPolicy = splitByEmailPolicy(input.recipients);
+  const ccPolicy = splitByEmailPolicy(input.cc);
+  const bccPolicy = splitByEmailPolicy(input.bcc);
+  const blockedOnEntry = [...toPolicy.blocked, ...ccPolicy.blocked, ...bccPolicy.blocked];
+  input = { ...input, recipients: toPolicy.allowed, cc: ccPolicy.allowed, bcc: bccPolicy.allowed };
+  if (blockedOnEntry.length > 0) await recordBlockedAddresses(input, blockedOnEntry);
   if (input.dedupeKey) {
     const alreadySent = await hasDedupeKeyBeenSent(input.dedupeKey);
     if (alreadySent) {
@@ -3122,7 +3163,9 @@ async function sendTemplatedEmail(input) {
   const ccList = Array.from(
     new Set([...input.cc ?? [], ...departmentCc, ...recipientChainCc].map((email) => email.trim().toLowerCase()).filter(Boolean))
   ).filter((email) => !cleanRecipients.some((to) => to.trim().toLowerCase() === email));
-  input = { ...input, cc: ccList };
+  const finalCc = splitByEmailPolicy(ccList);
+  if (finalCc.blocked.length > 0) await recordBlockedAddresses(input, finalCc.blocked);
+  input = { ...input, cc: finalCc.allowed };
   const appUrl = getAppUrl();
   const today = (/* @__PURE__ */ new Date()).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
   const normalizedInputData = normalizePortalLinks(input.data, appUrl);
@@ -3230,6 +3273,7 @@ async function retryEmail(logId) {
 }
 async function sendRawTestEmail(input) {
   if (!isSmtpConfigured()) throw httpError(400, "SMTP credentials are not configured on this server");
+  if (splitByEmailPolicy([input.to]).allowed.length === 0) throw httpError(400, EXTERNAL_ADDRESS_MESSAGE());
   const subject = input.subject || "ONEPWS Portal - SMTP Test Email";
   const appUrl = getAppUrl();
   const testMessage = input.message || "This is a verification test email from the ONEPWS Complaint & CAPA Management Portal.";
@@ -8383,6 +8427,7 @@ emailRouter.post(
     const permissions = req.user?.role?.permissions || [];
     const allowedToShare = permissions.includes("*") || permissions.includes("report.all") || permissions.includes("8d.approve") || permissions.includes("complaint.assign");
     if (!allowedToShare) throw httpError(403, "You do not have permission to share complaint reports");
+    if (!isInternalAddress(input.recipientEmail)) throw httpError(400, EXTERNAL_ADDRESS_MESSAGE());
     const context = await loadComplaintContext(input.complaintId, req.user);
     const complaint = context.doc;
     const appUrl = getAppUrl();

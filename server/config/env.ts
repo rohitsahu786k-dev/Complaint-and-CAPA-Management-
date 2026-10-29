@@ -21,7 +21,9 @@ const envSchema = z.object({
   SMTP_APP_PASSWORD: z.string().optional(),
   SMTP_FROM_EMAIL: z.string().optional(),
   SMTP_FROM_NAME: z.string().default("ONEPWS Complaint & CAPA Portal"),
-  CRON_SECRET: z.string().optional()
+  CRON_SECRET: z.string().optional(),
+  /** Comma-separated company email domains that may receive portal emails. Defaults to onepws.com. */
+  EMAIL_ALLOWED_DOMAINS: z.string().optional()
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
