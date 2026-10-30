@@ -16,7 +16,7 @@ vi.mock("../models/Employee", () => ({
   Employee: { findOne: (filter: { _id: string }) => lean(employees[filter._id] ?? null), find: () => lean([]) }
 }));
 vi.mock("../models/Role", () => ({ Role: { find: () => lean([]), findOne: () => lean(null) } }));
-vi.mock("../models/Department", () => ({ Department: { findById: () => lean(null) } }));
+vi.mock("../models/Department", () => ({ Department: { findById: () => lean(null), find: () => lean([]) } }));
 
 const { Types } = await import("mongoose");
 const { resolveRecipients } = await import("./email-recipient.service");

@@ -76,6 +76,48 @@ export async function resolveRecipientChainCc(recipients: string[]): Promise<str
   return Array.from(chain);
 }
 
+/**
+ * The department itself plus its "<name> Quality" counterpart or base department, so a complaint
+ * raised against "CD Quality" is handled by the CD people and "CCR Quality" by the CCR people.
+ */
+async function departmentGroupIds(departmentId: string | Types.ObjectId): Promise<Types.ObjectId[]> {
+  const id = new Types.ObjectId(String(departmentId));
+  const department = await Department.findById(id).select("name").lean();
+  const name = department?.name?.trim();
+  if (!name) return [id];
+  const base = name.replace(/\s+quality$/i, "").trim().toLowerCase();
+  const all = await Department.find({}).select("name").lean();
+  const ids = all
+    .filter((entry) => {
+      const entryName = entry.name?.trim().toLowerCase() ?? "";
+      return entryName === base || entryName === `${base} quality`;
+    })
+    .map((entry) => new Types.ObjectId(String(entry._id)));
+  return ids.some((entry) => String(entry) === String(id)) ? ids : [id, ...ids];
+}
+
+/**
+ * Role based recipients (Quality Head, Management) are company wide, so on a department complaint
+ * keep only the ones whose Employee Directory record belongs to that department. A person with no
+ * directory record is kept, because there is nothing to say they belong elsewhere.
+ */
+async function limitToDepartment<T extends { _id: unknown; email?: string | null }>(users: T[], departmentIds: Types.ObjectId[] | null): Promise<T[]> {
+  if (!departmentIds || users.length === 0) return users;
+  const emails = users.map((user) => normalizeEmail(user.email)).filter((email): email is string => Boolean(email));
+  const employees = await Employee.find({
+    active: { $ne: false },
+    $or: [{ linkedUser: { $in: users.map((user) => user._id) } }, { email: { $in: emails } }]
+  })
+    .select("department email linkedUser")
+    .lean();
+  const wanted = new Set(departmentIds.map(String));
+  return users.filter((user) => {
+    const email = normalizeEmail(user.email);
+    const own = employees.filter((employee) => String(employee.linkedUser ?? "") === String(user._id) || (email && normalizeEmail(employee.email) === email));
+    return own.length === 0 || own.some((employee) => wanted.has(String(employee.department)));
+  });
+}
+
 export async function resolveRecipients(options: RecipientResolutionOptions): Promise<string[]> {
   await connectDB();
   const recipientSet = new Set<string>();
@@ -114,6 +156,8 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
 
 
   const roles = options.targetRoles || [];
+  const departmentIds =
+    effectiveDepartmentId && Types.ObjectId.isValid(effectiveDepartmentId) ? await departmentGroupIds(effectiveDepartmentId) : null;
 
   // 2. Resolve Complaint Owner: the accountable portal user, and the directory employee the
   //    complaint is shown against when that owner has no login.
@@ -147,7 +191,7 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
   // 5. Resolve Department Head & Manager via Employee records
   if ((roles.includes("Department Head") || roles.includes("Manager")) && effectiveDepartmentId) {
     const query: Record<string, unknown> = {
-      department: effectiveDepartmentId,
+      department: departmentIds ? { $in: departmentIds } : effectiveDepartmentId,
       active: true
     };
     if (effectiveCompanyId) {
@@ -166,8 +210,8 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
 
   // 5b. Department-level Management addresses kept in Master Data > Departments
   if (roles.includes("Department Management") && effectiveDepartmentId && Types.ObjectId.isValid(effectiveDepartmentId)) {
-    const department = await Department.findById(effectiveDepartmentId).select("managementEmails").lean();
-    for (const email of normalizeEmailList(department?.managementEmails)) recipientSet.add(email);
+    const departments = await Department.find({ _id: { $in: departmentIds ?? [effectiveDepartmentId] } }).select("managementEmails").lean();
+    for (const department of departments) for (const email of normalizeEmailList(department.managementEmails)) recipientSet.add(email);
   }
 
   // 6. Resolve Quality Head
@@ -190,7 +234,7 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
       if (effectiveCompanyId) {
         userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
       }
-      const qualityUsers = await User.find(userQuery).select("email").lean();
+      const qualityUsers = await limitToDepartment(await User.find(userQuery).select("email").lean(), departmentIds);
       for (const u of qualityUsers) {
         const email = normalizeEmail(u.email);
         if (email) recipientSet.add(email);
@@ -214,7 +258,7 @@ export async function resolveRecipients(options: RecipientResolutionOptions): Pr
       if (effectiveCompanyId) {
         userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
       }
-      const mgmtUsers = await User.find(userQuery).select("email").lean();
+      const mgmtUsers = await limitToDepartment(await User.find(userQuery).select("email").lean(), departmentIds);
       for (const u of mgmtUsers) {
         const email = normalizeEmail(u.email);
         if (email) recipientSet.add(email);

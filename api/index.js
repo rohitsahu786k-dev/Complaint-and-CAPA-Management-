@@ -2166,6 +2166,33 @@ async function resolveRecipientChainCc(recipients) {
   }
   return Array.from(chain);
 }
+async function departmentGroupIds(departmentId) {
+  const id2 = new Types.ObjectId(String(departmentId));
+  const department = await Department.findById(id2).select("name").lean();
+  const name2 = department?.name?.trim();
+  if (!name2) return [id2];
+  const base = name2.replace(/\s+quality$/i, "").trim().toLowerCase();
+  const all = await Department.find({}).select("name").lean();
+  const ids = all.filter((entry) => {
+    const entryName = entry.name?.trim().toLowerCase() ?? "";
+    return entryName === base || entryName === `${base} quality`;
+  }).map((entry) => new Types.ObjectId(String(entry._id)));
+  return ids.some((entry) => String(entry) === String(id2)) ? ids : [id2, ...ids];
+}
+async function limitToDepartment(users, departmentIds) {
+  if (!departmentIds || users.length === 0) return users;
+  const emails = users.map((user) => normalizeEmail(user.email)).filter((email) => Boolean(email));
+  const employees = await Employee.find({
+    active: { $ne: false },
+    $or: [{ linkedUser: { $in: users.map((user) => user._id) } }, { email: { $in: emails } }]
+  }).select("department email linkedUser").lean();
+  const wanted = new Set(departmentIds.map(String));
+  return users.filter((user) => {
+    const email = normalizeEmail(user.email);
+    const own = employees.filter((employee) => String(employee.linkedUser ?? "") === String(user._id) || email && normalizeEmail(employee.email) === email);
+    return own.length === 0 || own.some((employee) => wanted.has(String(employee.department)));
+  });
+}
 async function resolveRecipients(options) {
   await connectDB();
   const recipientSet = /* @__PURE__ */ new Set();
@@ -2188,6 +2215,7 @@ async function resolveRecipients(options) {
   const effectiveOwnerId = options.ownerId || complaintDoc?.owner || capaDoc?.owner;
   const effectiveCoordinatorId = options.coordinatorId || complaintDoc?.coordinator;
   const roles = options.targetRoles || [];
+  const departmentIds = effectiveDepartmentId && Types.ObjectId.isValid(effectiveDepartmentId) ? await departmentGroupIds(effectiveDepartmentId) : null;
   if (roles.includes("Complaint Owner")) {
     if (effectiveOwnerId) {
       const ownerUser = await User.findOne({ _id: effectiveOwnerId, active: true }).lean();
@@ -2212,7 +2240,7 @@ async function resolveRecipients(options) {
   }
   if ((roles.includes("Department Head") || roles.includes("Manager")) && effectiveDepartmentId) {
     const query = {
-      department: effectiveDepartmentId,
+      department: departmentIds ? { $in: departmentIds } : effectiveDepartmentId,
       active: true
     };
     if (effectiveCompanyId) {
@@ -2229,8 +2257,8 @@ async function resolveRecipients(options) {
     }
   }
   if (roles.includes("Department Management") && effectiveDepartmentId && Types.ObjectId.isValid(effectiveDepartmentId)) {
-    const department = await Department.findById(effectiveDepartmentId).select("managementEmails").lean();
-    for (const email of normalizeEmailList(department?.managementEmails)) recipientSet.add(email);
+    const departments = await Department.find({ _id: { $in: departmentIds ?? [effectiveDepartmentId] } }).select("managementEmails").lean();
+    for (const department of departments) for (const email of normalizeEmailList(department.managementEmails)) recipientSet.add(email);
   }
   if (roles.includes("Quality Head")) {
     const qualityRoles = await Role.find({
@@ -2250,7 +2278,7 @@ async function resolveRecipients(options) {
       if (effectiveCompanyId) {
         userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
       }
-      const qualityUsers = await User.find(userQuery).select("email").lean();
+      const qualityUsers = await limitToDepartment(await User.find(userQuery).select("email").lean(), departmentIds);
       for (const u of qualityUsers) {
         const email = normalizeEmail(u.email);
         if (email) recipientSet.add(email);
@@ -2271,7 +2299,7 @@ async function resolveRecipients(options) {
       if (effectiveCompanyId) {
         userQuery.$or = [{ companyIds: effectiveCompanyId }, { companyIds: { $size: 0 } }];
       }
-      const mgmtUsers = await User.find(userQuery).select("email").lean();
+      const mgmtUsers = await limitToDepartment(await User.find(userQuery).select("email").lean(), departmentIds);
       for (const u of mgmtUsers) {
         const email = normalizeEmail(u.email);
         if (email) recipientSet.add(email);
