@@ -42,6 +42,8 @@ export async function resolveTatConfig(companyId: string | Types.ObjectId | null
 export async function resolveEscalation(companyId: string | Types.ObjectId | null): Promise<{
   levels: EscalationLevel[];
   reminderPercentages: number[];
+  autoEmailEnabled: boolean;
+  frequencyDays: number;
 }> {
   const [specific, global] = await Promise.all([
     companyId ? EscalationConfiguration.findOne({ company: companyId }).lean() : null,
@@ -52,7 +54,12 @@ export async function resolveEscalation(companyId: string | Types.ObjectId | nul
     ? source.levels.map((entry) => ({ ...entry }))
     : DEFAULT_ESCALATION_LEVELS.map((entry) => ({ ...entry }));
   const reminderPercentages = source?.reminderPercentages?.length ? [...source.reminderPercentages] : [...DEFAULT_REMINDER_PERCENTAGES];
-  return { levels, reminderPercentages };
+  return {
+    levels,
+    reminderPercentages,
+    autoEmailEnabled: source?.autoEmailEnabled ?? true,
+    frequencyDays: source?.frequencyDays ?? 7
+  };
 }
 
 export async function activeDelayReasons(): Promise<string[]> {

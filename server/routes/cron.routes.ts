@@ -5,6 +5,7 @@ import { ok } from "../utils/http";
 import { processReminders } from "../services/reminder.service";
 import { processEscalations } from "../services/escalation.service";
 import { processMonthlySummaries } from "../services/summary.service";
+import { claimScheduledRun } from "../services/email-schedule.service";
 
 export const cronRouter = Router();
 
@@ -16,11 +17,24 @@ cronRouter.use(requireCronAuth);
  * available so an administrator or an external scheduler can trigger a run by hand. Registering
  * only POST made every scheduled run answer 404, so none of these jobs ever executed.
  */
-function schedule(path: string, handler: (req: Request, res: Response) => Promise<unknown>) {
+function schedule(
+  path: string,
+  handler: (req: Request, res: Response) => Promise<unknown>,
+  gateJob?: "reminders" | "escalations"
+) {
   const wrapped = asyncHandler(async (req, res) => {
     await handler(req, res);
   });
-  cronRouter.get(path, wrapped);
+  // Scheduled (GET) runs obey the on/off switch and frequency from the Escalation Rules tab.
+  // A manual POST always runs.
+  const gated = asyncHandler(async (req, res) => {
+    if (gateJob) {
+      const decision = await claimScheduledRun(gateJob);
+      if (!decision.run) return ok(res, { job: gateJob, skipped: true, reason: decision.reason, timestamp: new Date().toISOString() });
+    }
+    await handler(req, res);
+  });
+  cronRouter.get(path, gated);
   cronRouter.post(path, wrapped);
 }
 
@@ -30,7 +44,7 @@ function schedule(path: string, handler: (req: Request, res: Response) => Promis
 schedule("/reminders", async (_req, res) => {
   const result = await processReminders();
   return ok(res, { job: "reminders", ...result, timestamp: new Date().toISOString() });
-});
+}, "reminders");
 
 /**
  * Overdue multi-tier escalations
@@ -38,7 +52,7 @@ schedule("/reminders", async (_req, res) => {
 schedule("/escalations", async (_req, res) => {
   const result = await processEscalations();
   return ok(res, { job: "escalations", ...result, timestamp: new Date().toISOString() });
-});
+}, "escalations");
 
 /**
  * Monthly Management summary digest

@@ -42,7 +42,11 @@ const EscalationConfigurationSchema = new Schema(
     company: { type: Schema.Types.ObjectId, ref: "Company", default: null, unique: true, index: true },
     levels: { type: [EscalationLevelSchema], default: [] },
     reminderPercentages: { type: [Number], default: [...DEFAULT_REMINDER_PERCENTAGES] },
-    active: { type: Boolean, default: true }
+    active: { type: Boolean, default: true },
+    autoEmailEnabled: { type: Boolean, default: true },
+    frequencyDays: { type: Number, default: 7, min: 1, max: 90 },
+    lastReminderRunAt: { type: Date, default: null },
+    lastEscalationRunAt: { type: Date, default: null }
   },
   { timestamps: true }
 );

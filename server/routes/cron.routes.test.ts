@@ -9,6 +9,7 @@ const processMonthlySummaries = vi.fn(async () => ({ sent: 0 }));
 vi.mock("../services/reminder.service", () => ({ processReminders }));
 vi.mock("../services/escalation.service", () => ({ processEscalations }));
 vi.mock("../services/summary.service", () => ({ processMonthlySummaries }));
+vi.mock("../services/email-schedule.service", () => ({ claimScheduledRun: vi.fn(async () => ({ run: true, reason: "test" })) }));
 
 const SECRET = "test-cron-secret-0123456789abcdef";
 let server: ReturnType<ReturnType<typeof express>["listen"]>;

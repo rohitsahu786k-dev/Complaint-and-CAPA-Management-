@@ -103,7 +103,7 @@ type MasterTab =
 
 type EditableConfiguration = {
   tat: Record<string, number>;
-  escalation: { levels: { level: number; name: string; triggerHoursOverdue: number }[]; reminderPercentages: number[]; active?: boolean };
+  escalation: { levels: { level: number; name: string; triggerHoursOverdue: number }[]; reminderPercentages: number[]; active?: boolean; autoEmailEnabled?: boolean; frequencyDays?: number };
   numbering?: {
     prefix?: string;
     sequencePadding?: number;
@@ -552,7 +552,7 @@ export function MasterDataPage() {
   async function saveEscalation() {
     const percentages = reminderPercentages.split(",").map((item) => Number(item.trim())).filter((item) => Number.isInteger(item) && item > 0 && item <= 100);
     if (!percentages.length) return toast.error("Enter at least one valid reminder percentage from 1 to 100.");
-    await run(() => api("/api/configuration/escalation", { method: "PUT", body: JSON.stringify({ company: selectedCompany || null, levels: escalationLevels, reminderPercentages: percentages, active: true }) }), "Escalation configuration saved", () => void configurationQuery.refetch());
+    await run(() => api("/api/configuration/escalation", { method: "PUT", body: JSON.stringify({ company: selectedCompany || null, levels: escalationLevels, reminderPercentages: percentages, active: true, autoEmailEnabled: configurationQuery.data?.escalation?.autoEmailEnabled ?? true, frequencyDays: configurationQuery.data?.escalation?.frequencyDays ?? 7 }) }), "Escalation configuration saved", () => void configurationQuery.refetch());
   }
 
   async function saveNumbering() {

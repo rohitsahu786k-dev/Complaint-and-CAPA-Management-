@@ -30,7 +30,11 @@ export const escalationConfigSchema = z.object({
     .min(1)
     .max(10),
   reminderPercentages: z.array(z.number().int().min(1).max(100)).min(1).max(10),
-  active: z.boolean().default(true)
+  active: z.boolean().default(true),
+  /** Master switch for the scheduled (automatic) reminder and escalation emails. */
+  autoEmailEnabled: z.boolean().default(true),
+  /** Repeat interval, in days, between automatic sends. 7 = weekly (Monday morning). */
+  frequencyDays: z.number().int().min(1).max(90).default(7)
 });
 
 export const numberingConfigSchema = z.object({
