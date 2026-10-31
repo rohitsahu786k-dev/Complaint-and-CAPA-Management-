@@ -41,7 +41,7 @@ export type Permissions = ReturnType<typeof usePermissions>;
 
 export type ConfigurationResponse = {
   tat: Record<string, number>;
-  escalation: { levels: { level: number; name: string; triggerHoursOverdue: number }[]; reminderPercentages: number[] };
+  escalation: { levels: { level: number; name: string; triggerHoursOverdue: number }[]; reminderPercentages: number[]; autoEmailEnabled?: boolean; frequencyDays?: number };
   delayReasons: string[];
   categories: { _id: string; name: string; complaintType: "External" | "Internal"; parent: string | null }[];
   priorities: { _id: string; name: string; color: string; tatMultiplier: number }[];
